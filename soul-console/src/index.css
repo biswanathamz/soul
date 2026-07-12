@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg font-sans text-text antialiased;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Markdown body used in chat bubbles */
+  .md > *:first-child {
+    margin-top: 0;
+  }
+  .md > *:last-child {
+    margin-bottom: 0;
+  }
+  .md p {
+    @apply my-2 leading-relaxed;
+  }
+  .md ul {
+    @apply my-2 list-disc space-y-1 pl-5;
+  }
+  .md ol {
+    @apply my-2 list-decimal space-y-1 pl-5;
+  }
+  .md h1,
+  .md h2,
+  .md h3,
+  .md h4 {
+    @apply mb-2 mt-4 font-semibold text-text;
+  }
+  .md h1 {
+    @apply text-lg;
+  }
+  .md h2 {
+    @apply text-base;
+  }
+  .md h3,
+  .md h4 {
+    @apply text-sm uppercase tracking-wide;
+  }
+  .md a {
+    @apply text-accent underline underline-offset-2;
+  }
+  .md blockquote {
+    @apply my-2 border-l-2 border-accent-dim pl-3 text-muted;
+  }
+  .md hr {
+    @apply my-3 border-line;
+  }
+  .md table {
+    @apply my-3 block w-max max-w-full border-collapse overflow-x-auto text-sm;
+  }
+  .md th {
+    @apply border border-line bg-surface2 px-3 py-1.5 text-left font-semibold;
+  }
+  .md td {
+    @apply border border-line px-3 py-1.5;
+  }
+  .inline-code {
+    @apply rounded bg-surface2 px-1.5 py-0.5 font-mono text-[0.85em] text-accent;
+  }
+  .md pre {
+    @apply my-2 overflow-x-auto rounded-lg p-4 font-mono text-sm;
+  }
+  .md pre.fallback {
+    @apply bg-surface2;
+  }
+  .md .shiki {
+    background: #0d1117 !important;
+  }
+}
