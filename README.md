@@ -14,4 +14,13 @@ Everything runs locally — no cloud APIs, no data leaving your machine.
 - **Backend**: `soul-orchestrator` — Spring Boot, agent orchestration, port `7788`
 - **Tools**: `soul-scripts` — Python scripts agents use to act on the world
 
+## Quick start (Docker)
+
+```bash
+docker compose up --build
+```
+
+Then open **http://localhost:7787**. This runs the UI plus a mock orchestrator
+(the real Spring Boot service will drop into the same compose slot later).
+
 📄 Full design: [docs/SPEC.md](docs/SPEC.md)

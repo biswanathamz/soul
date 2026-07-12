@@ -1,0 +1,33 @@
+# SOUL — run the whole stack with: docker compose up --build
+#
+# soul-orchestrator is currently the mock (SPEC §5 contracts). When the real
+# Spring Boot service lands, its build context replaces this one — same service
+# name, same port, and soul-console needs no changes.
+services:
+  soul-orchestrator:
+    build:
+      context: ./soul-console
+      dockerfile: mock/Dockerfile
+    container_name: soul-orchestrator
+    environment:
+      HOST: 0.0.0.0
+      PORT: "7788"
+    ports:
+      - "7788:7788" # optional: direct API access for debugging
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:7788/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  soul-console:
+    build:
+      context: ./soul-console
+    container_name: soul-console
+    environment:
+      ORCHESTRATOR_URL: http://soul-orchestrator:7788
+    ports:
+      - "7787:7787"
+    depends_on:
+      soul-orchestrator:
+        condition: service_healthy
