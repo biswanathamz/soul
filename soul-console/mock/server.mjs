@@ -9,6 +9,8 @@ import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 
 const PORT = Number(process.env.PORT ?? 7788);
+// 127.0.0.1 for local dev; docker-compose sets HOST=0.0.0.0.
+const HOST = process.env.HOST ?? '127.0.0.1';
 
 const agents = {
   super: { model: 'llama3.1', description: 'Manager — plans, delegates, synthesizes' },
@@ -276,6 +278,6 @@ setInterval(() => {
   for (const ws of sockets) if (ws.readyState === 1) ws.ping();
 }, 15000);
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[mock soul-orchestrator] http://localhost:${PORT}  (ws: /ws/stream)`);
+server.listen(PORT, HOST, () => {
+  console.log(`[mock soul-orchestrator] http://${HOST}:${PORT}  (ws: /ws/stream)`);
 });

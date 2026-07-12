@@ -25,6 +25,18 @@ against the real Spring Boot orchestrator once it exists — just stop the mock.
 | `npm run preview` | Serve the production build on :7787 |
 | `npm run lint` | ESLint |
 
+## Run (Docker)
+
+From the repo root:
+
+```bash
+docker compose up --build    # UI on http://localhost:7787, mock orchestrator on :7788
+```
+
+The UI image is a two-stage build (Node build → nginx). nginx serves the SPA on 7787 and
+proxies `/api`, `/actuator`, and `/ws` (with WebSocket upgrade) to `ORCHESTRATOR_URL` —
+so the container also works unchanged against the real Spring Boot orchestrator later.
+
 ## Voice
 
 v1 uses the browser's Web Speech API: push-to-talk by default, hands-free mode in Settings.
