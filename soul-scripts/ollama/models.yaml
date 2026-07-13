@@ -13,25 +13,11 @@
 defaults:
   keep_alive: 30m
 
+# Manager-agent phase: only the Super Agent ("SOUL") model is provisioned.
+# Sub-agent models (coder/researcher/writer/analyst/sysops) get added back here
+# as each of those agents is built. See docs/manager-agent.md.
 models:
   - name: llama3.1:8b
-    roles: [super, researcher, sysops]   # who binds to it (SPEC §3.2)
+    roles: [super]        # the Manager — plans, delegates, runs skills/hooks
     required: true
-    warm: true                           # preload into RAM at sync time
-
-  - name: qwen2.5-coder:7b
-    roles: [coder]
-    required: true
-    warm: true
-
-  - name: gemma2:9b
-    roles: [writer]
-    required: true
-
-  - name: deepseek-r1:8b
-    roles: [analyst]
-    required: true
-
-  - name: mistral:7b
-    roles: []                            # optional spare for experiments
-    required: false
+    warm: true            # preload into RAM so the first message isn't a cold load
