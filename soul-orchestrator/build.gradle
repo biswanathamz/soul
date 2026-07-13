@@ -1,0 +1,29 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.4'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+group = 'com.soul'
+version = '0.1.0'
+
+java {
+    // Use the JDK running Gradle (Java 17 on this machine); Spring Boot 3 needs 17+.
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.yaml:snakeyaml'                       // skill/hook manifest parsing
+    implementation 'com.fasterxml.jackson.core:jackson-databind' // JSON protocol
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

@@ -128,8 +128,16 @@ console-build: ## Typecheck + production build of the console
 pools-verify: ## Validate + smoke-test skillpool/ and hookspool/ (no model needed)
 	$(PYTHON) soul-scripts/pooltest.py
 
+.PHONY: orchestrator-test
+orchestrator-test: ## Run the orchestrator's JUnit tests (Spring Boot)
+	cd soul-orchestrator && ./gradlew test
+
+.PHONY: orchestrator-build
+orchestrator-build: ## Build the orchestrator jar
+	cd soul-orchestrator && ./gradlew build
+
 .PHONY: verify
-verify: models-verify pools-verify test ## Run all checks (manifest + pools + console tests)
+verify: models-verify pools-verify orchestrator-test test ## Run all checks (manifest + pools + orchestrator + console)
 
 # ---------------------------------------------------------------------------
 ##@ Cleanup
