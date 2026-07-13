@@ -18,9 +18,11 @@ repositories {
 }
 
 dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'  // /actuator/health
     implementation 'org.yaml:snakeyaml'                       // skill/hook manifest parsing
-    implementation 'com.fasterxml.jackson.core:jackson-databind' // JSON protocol
+    // Jackson comes with the web starter.
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 

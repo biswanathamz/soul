@@ -1,4 +1,10 @@
 soul:
+  ollama:
+    base-url: ${OLLAMA_HOST:http://localhost:11434}
+    request-timeout-seconds: 120
+  web:
+    cors-allowed-origin: http://localhost:7787
+
   pools:                          # loaded once, shared by every agent
     skills: { path: ../skillpool, enabled: true }
     hooks:  { path: ../hookspool, enabled: true, default-timeout-seconds: 5 }
@@ -11,6 +17,5 @@ soul:
       skills: [echo, current-time, persona]
       hooks:  [audit-log, block-secrets, inject-time]
 
-spring:
-  main:
-    web-application-type: none    # phase 2 has no web surface yet
+server:
+  port: 7788

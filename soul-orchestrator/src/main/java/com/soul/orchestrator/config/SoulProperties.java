@@ -13,8 +13,26 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "soul")
 public class SoulProperties {
 
+    private Ollama ollama = new Ollama();
+    private Web web = new Web();
     private Pools pools = new Pools();
     private Map<String, Agent> agents = new LinkedHashMap<>();
+
+    public Ollama getOllama() {
+        return ollama;
+    }
+
+    public void setOllama(Ollama ollama) {
+        this.ollama = ollama;
+    }
+
+    public Web getWeb() {
+        return web;
+    }
+
+    public void setWeb(Web web) {
+        this.web = web;
+    }
 
     public Pools getPools() {
         return pools;
@@ -22,6 +40,39 @@ public class SoulProperties {
 
     public void setPools(Pools pools) {
         this.pools = pools;
+    }
+
+    public static class Ollama {
+        private String baseUrl = "http://localhost:11434";
+        private int requestTimeoutSeconds = 120;
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+        }
+
+        public int getRequestTimeoutSeconds() {
+            return requestTimeoutSeconds;
+        }
+
+        public void setRequestTimeoutSeconds(int requestTimeoutSeconds) {
+            this.requestTimeoutSeconds = requestTimeoutSeconds;
+        }
+    }
+
+    public static class Web {
+        private String corsAllowedOrigin = "http://localhost:7787";
+
+        public String getCorsAllowedOrigin() {
+            return corsAllowedOrigin;
+        }
+
+        public void setCorsAllowedOrigin(String corsAllowedOrigin) {
+            this.corsAllowedOrigin = corsAllowedOrigin;
+        }
     }
 
     public Map<String, Agent> getAgents() {

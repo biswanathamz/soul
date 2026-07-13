@@ -25,6 +25,11 @@ up: ## Start the UI stack in the background (→ http://localhost:7787)
 	$(COMPOSE) up -d $(UI_SERVICES)
 	@echo "SOUL console → http://localhost:7787"
 
+.PHONY: up-real
+up-real: ## Start the REAL stack (Ollama + Spring orchestrator + UI) — needs a pulled model
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.real.yml up -d --build soul-ollama soul-orchestrator soul-console
+	@echo "Real SOUL → http://localhost:7787  (run 'make models-sync' first if the model isn't pulled)"
+
 .PHONY: down
 down: ## Stop and remove all SOUL containers
 	$(COMPOSE) down
