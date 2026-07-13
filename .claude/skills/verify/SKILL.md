@@ -21,7 +21,7 @@ pulled model — use it to verify orchestrator logic quickly.
 
 ## End-to-end (real Ollama)
 
-Needs Ollama running with the Manager's model pulled (`make ollama-up && make models-sync`).
+Needs host Ollama running with the Manager's model pulled (`make ollama-serve && make models-sync`).
 
 Launch orchestrator + UI on the host (two processes):
 

@@ -3,28 +3,38 @@
 # Container engine defaults to podman-compose (what works on this machine).
 # For Docker instead:   make up COMPOSE="docker compose"
 #
-# Services are always named explicitly because podman-compose ignores compose
-# `profiles:` — so a bare `up` would otherwise also start Ollama's big pull.
+# Only the orchestrator + console run in containers. Ollama runs host-native on
+# the GPU (`make ollama-serve`); the orchestrator container reaches it via
+# host.containers.internal. Models are managed host-side (`make models-sync`).
 
 COMPOSE ?= podman-compose
 PYTHON  ?= python3
 
 CONSOLE_DIR := soul-console
 MANAGE      := $(PYTHON) soul-scripts/ollama/manage.py
-STACK       := soul-ollama soul-orchestrator soul-console
+STACK       := soul-orchestrator soul-console
 BUILDABLE   := soul-orchestrator soul-console
 OLLAMA_URL  := http://localhost:11434
 
 .DEFAULT_GOAL := help
 
 # ---------------------------------------------------------------------------
-##@ Stack — Ollama + Manager + UI
+##@ Setup — one-time host bootstrap
+# ---------------------------------------------------------------------------
+
+.PHONY: setup
+setup: models-deps ollama-install models-sync ## One-time: install Python deps + host Ollama (GPU) + pull the model
+	@echo ""
+	@echo "Host setup complete. Start the app with:  make up"
+
+# ---------------------------------------------------------------------------
+##@ Stack — Manager + UI containers (Ollama is host-native)
 # ---------------------------------------------------------------------------
 
 .PHONY: up
-up: ## Start the full stack (Ollama + Manager + UI) in the background (→ http://localhost:7787)
+up: ## Build + start the Manager + UI containers (→ http://localhost:7787). Run 'make setup' once first
 	$(COMPOSE) up -d --build $(STACK)
-	@echo "SOUL console → http://localhost:7787  (run 'make models-sync' first if the model isn't pulled)"
+	@echo "SOUL console → http://localhost:7787  (first time? run 'make setup' to install host Ollama + pull the model)"
 
 .PHONY: down
 down: ## Stop and remove all SOUL containers
@@ -54,28 +64,40 @@ logs: ## Tail logs from the stack
 ##@ Ollama + models
 # ---------------------------------------------------------------------------
 
-.PHONY: ollama-up
-ollama-up: ## Start the Ollama service (localhost:11434)
-	$(COMPOSE) up -d soul-ollama
-	@echo "Ollama → $(OLLAMA_URL)"
+.PHONY: ollama-install
+ollama-install: ## Install host-native Ollama + run it as a GPU service on 0.0.0.0:11434 (uses sudo)
+	@if command -v ollama >/dev/null 2>&1; then \
+	  echo "ollama already installed: $$(command -v ollama)"; \
+	else \
+	  echo "installing Ollama (official script — will prompt for sudo) …"; \
+	  curl -fsSL https://ollama.com/install.sh | sh; \
+	fi
+	@echo "configuring the ollama systemd service to listen on 0.0.0.0:11434 …"
+	sudo mkdir -p /etc/systemd/system/ollama.service.d
+	printf '[Service]\nEnvironment="OLLAMA_HOST=0.0.0.0:11434"\n' | \
+	  sudo tee /etc/systemd/system/ollama.service.d/override.conf >/dev/null
+	sudo systemctl daemon-reload
+	sudo systemctl enable ollama
+	sudo systemctl restart ollama   # restart (not just start) so the 0.0.0.0 drop-in applies to a running service
+	@echo "Ollama serving on 0.0.0.0:11434 (systemd, GPU). Next: make models-sync"
 
-.PHONY: ollama-down
-ollama-down: ## Stop the Ollama service
-	$(COMPOSE) stop soul-ollama
+.PHONY: ollama-serve
+ollama-serve: ## Run Ollama in the foreground on 0.0.0.0:11434 (alternative to the systemd service; stop the service first)
+	@echo "starting host Ollama on 0.0.0.0:11434 (Ctrl-C to stop) …"
+	OLLAMA_HOST=0.0.0.0:11434 ollama serve
 
 .PHONY: ollama-wait
-ollama-wait: ## Block until Ollama answers (used by models-sync)
+ollama-wait: ## Block until host Ollama answers (used by models-sync)
 	@echo "waiting for Ollama at $(OLLAMA_URL) …"; \
 	for i in $$(seq 1 30); do \
 	  curl -sf $(OLLAMA_URL)/api/version >/dev/null 2>&1 && { echo "  ready"; exit 0; }; \
 	  sleep 1; \
 	done; \
-	echo "  Ollama not ready after 30s" >&2; exit 1
+	echo "  Ollama not ready after 30s — start it with 'make ollama-serve'" >&2; exit 1
 
 .PHONY: models-sync
-models-sync: ollama-up ollama-wait ## Pull + warm every model in the manifest (~20 GB first run)
-	$(COMPOSE) build soul-model-init
-	$(COMPOSE) run --rm soul-model-init sync
+models-sync: ollama-wait ## Pull + warm every model in the manifest (host Ollama)
+	$(MANAGE) sync
 
 .PHONY: models-status
 models-status: ## Show manifest vs installed models
@@ -94,12 +116,16 @@ models-prune: ## Remove installed models not in the manifest
 	$(MANAGE) prune
 
 .PHONY: models-deps
-models-deps: ## Install manage.py's Python dependency (PyYAML)
-	$(PYTHON) -m pip install -r soul-scripts/ollama/requirements.txt
-
-.PHONY: ollama-gpu
-ollama-gpu: ## Start Ollama with NVIDIA GPU — Docker only, needs a working driver + toolkit
-	docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d soul-ollama
+models-deps: ## Ensure manage.py's dependency (PyYAML) is available (apt-first; PEP 668-safe)
+	@if $(PYTHON) -c "import yaml" >/dev/null 2>&1; then \
+	  echo "PyYAML already available — nothing to install"; \
+	elif command -v apt-get >/dev/null 2>&1; then \
+	  echo "installing python3-yaml via apt (externally-managed Python) …"; \
+	  sudo apt-get install -y python3-yaml; \
+	else \
+	  echo "installing PyYAML via pip …"; \
+	  $(PYTHON) -m pip install -r soul-scripts/ollama/requirements.txt; \
+	fi
 
 # ---------------------------------------------------------------------------
 ##@ Console dev (host, no containers)
@@ -141,15 +167,14 @@ verify: models-verify pools-verify orchestrator-test test ## Run all checks (man
 # ---------------------------------------------------------------------------
 
 .PHONY: clean
-clean: ## Stop containers and remove the network (keeps model volume)
+clean: ## Stop containers and remove the network (host Ollama + models untouched)
 	$(COMPOSE) down
 
 .PHONY: clean-models
-clean-models: ## Delete the downloaded-models volume (frees ~20 GB)
-	@echo "Removing the Ollama model volume — this deletes all downloaded models."
-	-podman volume rm soul_soul-ollama-models 2>/dev/null || \
-	 podman volume rm soul-ollama-models 2>/dev/null || \
-	 echo "  (volume not found — nothing to remove)"
+clean-models: ## Remove installed models NOT in the manifest (host Ollama; alias of models-prune)
+	@echo "Host Ollama stores models in ~/.ollama. Removing models not in the manifest;"
+	@echo "delete a specific one with 'ollama rm <model>'."
+	$(MANAGE) prune
 
 # ---------------------------------------------------------------------------
 ##@ Help

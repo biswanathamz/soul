@@ -12,38 +12,46 @@ Everything runs locally — no cloud APIs, no data leaving your machine.
 
 ## Components
 
-| Service | What | Port |
-| --- | --- | --- |
-| `soul-console` | React UI (chat + voice, black & yellow theme) | `7787` |
-| `soul-orchestrator` | The Manager agent — Spring Boot service, drives the agent loop | `7788` |
-| `soul-scripts/ollama` | Declarative Ollama model management (manifest + `manage.py`) | — |
-| `soul-ollama` | Local model runtime (Ollama) — the single source of models | `11434` |
+| Service | What | Runs as | Port |
+| --- | --- | --- | --- |
+| `soul-console` | React UI (chat + voice, black & yellow theme) | container | `7787` |
+| `soul-orchestrator` | The Manager agent — Spring Boot service, drives the agent loop | container | `7788` |
+| `soul-scripts/ollama` | Declarative Ollama model management (manifest + `manage.py`) | host script | — |
+| Ollama | Local model runtime — the single source of models | **host-native (GPU)** | `11434` |
 
 The UI talks to the real Spring Boot orchestrator, which runs the Manager agent against local **Ollama** models. Ollama is the one and only model provider — there is no mock backend.
 
+**Topology:** only the orchestrator and the console run in containers. **Ollama runs natively on the host** so it can use the NVIDIA GPU directly (rootless containers can't reach the GPU here without extra toolkit setup). The orchestrator container reaches the host's Ollama via `host.containers.internal:11434`, so Ollama must listen on `0.0.0.0:11434` (not just localhost).
+
 ## Prerequisites
 
-- **Podman** + **podman-compose**, *or* **Docker** with the Compose plugin — to run the containers.
-- **GNU Make** — the lifecycle is driven entirely through `make`.
+- **Podman** + **podman-compose**, *or* **Docker** with the Compose plugin — to run the orchestrator + console containers.
+- **GNU Make** — the lifecycle is driven through `make`.
+- **`sudo` + `curl`** — `make setup` installs host Ollama via the official script (needs root once).
+- For GPU acceleration: an **NVIDIA GPU with a working driver** (CPU works too, just slower).
 - *(Optional)* **Node 20+** — only for running the UI in host dev mode.
-- *(Optional)* **Python 3.11+ and PyYAML** — only for the model-management tooling (`make models-deps` installs PyYAML).
 
-Nothing else needs installing globally — the container images bring their own toolchains.
+`make setup` installs the rest — host Ollama (the model runtime) and Python/PyYAML (the model tooling). Only the orchestrator and console images bring their own toolchains.
 
 ## Quick start
 
 ```bash
-make models-sync   # one-time: pull the Manager's model into Ollama (a few GB)
-make up            # build + start Ollama, the orchestrator, and the UI
+make setup   # one-time: install host Ollama (GPU) + Python deps + pull the model
+make up      # build + start the orchestrator + console containers
 ```
 
-Then open **http://localhost:7787**. `make up` builds the images (first run: a few minutes) and starts Ollama, the Spring Boot orchestrator, and the UI as containers in the background. `make models-sync` only needs re-running when the model list changes.
+Then open **http://localhost:7787**.
 
-Stop everything with:
+- **`make setup`** (once) installs Ollama on the host and runs it as a **systemd GPU service** on `0.0.0.0:11434`, installs PyYAML, and pulls the Manager's model (a few GB). It uses `sudo` for the install. Re-run `make models-sync` alone whenever the model list changes.
+- **`make up`** builds the two images (first run: a few minutes) and starts the orchestrator and UI as containers; they reach the host's Ollama over `host.containers.internal`.
+
+Stop the containers with:
 
 ```bash
 make down
 ```
+
+(Host Ollama keeps running as a service — stop it with `sudo systemctl stop ollama`.)
 
 ## Running with Make
 
@@ -51,8 +59,8 @@ make down
 
 | Command | What it does |
 | --- | --- |
-| `make up` | Build + start the full stack (→ http://localhost:7787) |
-| `make down` | Stop and remove all SOUL containers |
+| `make up` | Build + start the orchestrator + console containers (→ http://localhost:7787) |
+| `make down` | Stop and remove the SOUL containers (leaves host Ollama running) |
 | `make restart` | `down` then `up` |
 | `make build` / `make rebuild` | Build images / rebuild with no cache |
 | `make ps` | Show running containers |
@@ -64,23 +72,24 @@ The Makefile uses **podman-compose** by default. To use Docker instead, override
 make up COMPOSE="docker compose"
 ```
 
-## Adding local models (Ollama)
+## Ollama + local models
 
-This is opt-in and separate from the UI, because the first sync downloads **~20 GB** of models.
+Ollama runs on the host so it can use the GPU. `make setup` installs it and starts it as a systemd service; after that, manage the model set with:
 
 ```bash
-make ollama-up        # start the Ollama runtime on localhost:11434
 make models-sync      # pull + warm every model in soul-scripts/ollama/models.yaml
 make models-status    # see what's installed / loaded
 ```
 
-Which models SOUL uses is declared in [soul-scripts/ollama/models.yaml](soul-scripts/ollama/models.yaml) and reconciled by `manage.py` — see [soul-scripts/ollama/README.md](soul-scripts/ollama/README.md). Other model targets: `make models-verify`, `make models-warm`, `make models-prune`.
+The model tooling (`manage.py`) talks to Ollama's REST API directly on the host — no container. Which models SOUL uses is declared in [soul-scripts/ollama/models.yaml](soul-scripts/ollama/models.yaml) and reconciled by `manage.py` — see [soul-scripts/ollama/README.md](soul-scripts/ollama/README.md). Other model targets: `make models-verify`, `make models-warm`, `make models-prune`.
 
-**GPU:** `make ollama-gpu` starts Ollama with NVIDIA acceleration, but it requires **Docker** (not podman), the NVIDIA Container Toolkit, and a working driver. CPU is the default and works everywhere.
+Related Ollama targets: `make ollama-install` (install + configure the service — part of `make setup`), and `make ollama-serve` (run it in the foreground instead of the systemd service — stop the service first).
+
+**GPU:** because Ollama is host-native, it uses the NVIDIA GPU automatically when the driver is present — no NVIDIA Container Toolkit or CDI setup needed. On a small GPU (e.g. 4 GB) it offloads as many layers as fit; CPU handles the rest.
 
 ## Host dev mode (no containers)
 
-For fast UI iteration with hot reload, run the orchestrator and the console directly on the host. You need Ollama running (`make ollama-up`) with the model pulled (`make models-sync`). Use two terminals:
+For fast UI iteration with hot reload, run the orchestrator and the console directly on the host too. You need Ollama running (the `make setup` service, or `make ollama-serve`) with the model pulled. Use two terminals:
 
 ```bash
 make install                                   # one-time: npm install
@@ -93,14 +102,16 @@ The Vite dev server proxies `/api`, `/actuator`, and `/ws` to the orchestrator o
 ## Cleanup
 
 ```bash
-make clean          # stop containers, remove the network (keeps downloaded models)
-make clean-models   # delete the model volume (frees ~20 GB)
+make clean          # stop the containers, remove the network (host Ollama + models untouched)
+make models-prune   # remove installed models NOT in the manifest
 ```
+
+Models live in the host's Ollama store (`~/.ollama`); remove one with `ollama rm <model>`.
 
 ## Notes
 
-- **Use `make`, not `podman compose` directly.** podman-compose ignores compose `profiles:`, so a bare `podman-compose up` would also start Ollama's big pull. The Makefile always names services explicitly to avoid that — and it uses `podman-compose` (hyphenated), since `podman compose` (spaced) routes to a broken provider on some setups.
-- Ollama's API is unauthenticated, so its port is published on `127.0.0.1` only.
+- **Use `make`, not `podman compose` directly.** It uses `podman-compose` (hyphenated), since `podman compose` (spaced) routes to a broken provider on some setups.
+- **Ollama must listen on `0.0.0.0`** for the orchestrator container to reach it via `host.containers.internal` — `make ollama-serve` sets that. Its API is unauthenticated, so keep the box off untrusted networks or firewall port 11434.
 
 ## Docs
 

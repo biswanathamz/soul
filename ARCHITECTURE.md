@@ -61,17 +61,19 @@ These are the invariants every component is built to respect.
                     │   │ Registry │      │ Registry │  │ HttpClient│ │
                     │   └────┬─────┘      └────┬─────┘  └────┬─────┘  │
                     └────────┼─────────────────┼────────────┼────────┘
-                     reads   │          reads  │      HTTP  │ /api/chat (NDJSON)
-                    ┌────────▼───────┐ ┌────────▼───────┐ ┌─▼──────────────────┐
-                    │  skillpool/    │ │  hookspool/    │ │  soul-ollama :11434│
-                    │ echo, current- │ │ audit-log,     │ │  llama3.1:8b …     │
-                    │ time, persona  │ │ block-secrets… │ │  (local models)    │
-                    └────────────────┘ └────────────────┘ └────────────────────┘
+                     reads   │          reads  │   HTTP via host.containers.internal
+                    ┌────────▼───────┐ ┌────────▼───────┐ ┌─▼──────────────────────┐
+                    │  skillpool/    │ │  hookspool/    │ │  Ollama  :11434         │
+                    │ echo, current- │ │ audit-log,     │ │  HOST-NATIVE (GPU)      │
+                    │ time, persona  │ │ block-secrets… │ │  llama3.1:8b … (0.0.0.0)│
+                    └────────────────┘ └────────────────┘ └────────────────────────┘
+           ── containerized ──                            ──── on the host ────
 
-     soul-scripts/ollama —— declarative model management (manifest + manage.py)
-                            pulls/warms/prunes models in soul-ollama, out of band
+     soul-scripts/ollama —— declarative model management (manifest + manage.py),
+                            run on the host against Ollama's REST API, out of band
 ```
 
+The console and orchestrator run as **containers**; **Ollama runs host-native on the GPU**.
 Three long-running services (**console**, **orchestrator**, **ollama**) plus one
 out-of-band toolchain (**scripts**) and two shared capability pools (**skillpool**,
 **hookspool**).
@@ -119,11 +121,17 @@ all talking to Ollama. Java packages under `com.soul.orchestrator`:
 `stub-ollama` profile → `StubOllamaClient` for deterministic tests (32 JUnit tests, incl.
 `ManagerAgentTest` driving the full loop against the *real* pools with only the LLM stubbed).
 
-### 3.3 `soul-ollama` — the model runtime  ·  `:11434`  ·  Ollama
+### 3.3 Ollama — the model runtime  ·  `:11434`  ·  host-native (GPU)
 
 The local inference server. Holds the pulled models and serves `/api/chat` (tool-calling,
-streaming). Runs as a container or a host service. The current manifest ships one model —
-`llama3.1:8b`, role `super` (the Manager's brain).
+streaming). The current manifest ships one model — `llama3.1:8b`, role `super` (the
+Manager's brain).
+
+**Runs on the host, not in a container** — deliberately, so it uses the NVIDIA GPU directly
+(rootless podman can't reach the GPU here without the NVIDIA Container Toolkit + a CDI spec).
+It binds `0.0.0.0:11434` so the orchestrator *container* can reach it via
+`host.containers.internal`. The orchestrator tolerates Ollama being unreachable at boot,
+surfacing an `error` event rather than crashing.
 
 ### 3.4 `soul-scripts/ollama` — model management  ·  Python
 
@@ -254,18 +262,21 @@ No code change to grant an existing skill/hook to a new agent.
 
 ## 6. Runtime topology & deployment
 
-Everything is designed to run either **containerized** or **host-side**, service by service.
+**Ollama always runs host-native (on the GPU); the orchestrator and console are containers.**
+The orchestrator container reaches the host's Ollama via `host.containers.internal:11434`
+(hence Ollama binds `0.0.0.0`). The two app services can *also* be run host-side for dev.
 
-| Mode | How | When |
+| Piece | Normal | Dev (host-side) |
 | --- | --- | --- |
-| **Containerized** | `make up` — `soul-ollama` + Spring orchestrator + console, built images | The normal full stack in podman/Docker. |
-| **Host-side** | `./gradlew bootRun` (or `java -jar`) + `make dev` (Vite) + host/container Ollama | Quick dev/agent runs; uses the GPU directly, skips image builds. |
+| **Ollama** | `make ollama-install` — host-native systemd service, GPU, `0.0.0.0:11434` | same (or `make ollama-serve` foreground) |
+| **orchestrator** | `make up` — container, built image | `./gradlew bootRun` (→ `localhost:11434`) |
+| **console** | `make up` — container (nginx) | `make dev` (Vite) |
 
 Container engine is **podman-compose** by default (`COMPOSE=` overrides to `docker compose`).
-Note podman-compose ignores compose `profiles:`, so the Makefile always names services
-explicitly. GPU passthrough uses `docker-compose.gpu.yml` (Docker path). Because all three
-services talk over `localhost`/the compose network, host and container processes interoperate
-freely — which is why, in a host-side run, only Ollama shows up in `podman ps`.
+Models are pulled host-side with `make models-sync` (`manage.py` over Ollama's REST API — no
+container). Because everything meets over `localhost`/`host.containers.internal`, host and
+container processes interoperate freely — and only the app containers ever show in `podman ps`
+(Ollama is a host process).
 
 **CI** (`.github/workflows/`): `verify-models.yml` (manifest), `verify-pools.yml` (skill/hook
 smoke tests), `verify-orchestrator.yml` (JUnit). `make verify` runs the whole set locally.
@@ -279,8 +290,7 @@ soul/
 ├── ARCHITECTURE.md            ← this file
 ├── README.md                  the pitch + quick start
 ├── Makefile                   the entire lifecycle (make help)
-├── docker-compose.yml         the stack: Ollama + orchestrator + console
-├── docker-compose.gpu.yml     override → NVIDIA GPU passthrough (Docker)
+├── docker-compose.yml         the app containers: orchestrator + console (Ollama is host-native)
 │
 ├── soul-console/              React + Vite UI (:7787)
 │   ├── src/{api,state,components,voice,theme,lib}/

@@ -30,7 +30,7 @@ The Vite dev server proxies `/api`, `/actuator`, and `/ws` to the orchestrator o
 From the repo root:
 
 ```bash
-make up    # full stack: Ollama + Spring orchestrator + UI on http://localhost:7787
+make up    # orchestrator + UI containers on http://localhost:7787 (needs host Ollama — see repo README)
 ```
 
 The UI image is a two-stage build (Node build → nginx). nginx serves the SPA on 7787 and

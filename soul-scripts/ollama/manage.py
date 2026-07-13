@@ -95,15 +95,15 @@ class Ollama:
     host: str
 
     def _request(
-        self, path: str, *, method: str = "GET", body: dict | None = None, timeout: float | None = 10
+        self, path: str, *, method: str = "GET", body: dict | None = None
     ) -> urllib.request.Request:
         data = json.dumps(body).encode() if body is not None else None
         headers = {"Content-Type": "application/json"} if data else {}
         return urllib.request.Request(f"{self.host}{path}", data=data, method=method, headers=headers)
 
-    def _json(self, path: str, *, method: str = "GET", body: dict | None = None) -> dict:
+    def _json(self, path: str, *, method: str = "GET", body: dict | None = None, timeout: float = 15) -> dict:
         try:
-            with urllib.request.urlopen(self._request(path, method=method, body=body), timeout=15) as r:
+            with urllib.request.urlopen(self._request(path, method=method, body=body), timeout=timeout) as r:
                 raw = r.read().decode() or "{}"
                 return json.loads(raw)
         except urllib.error.HTTPError as e:
@@ -115,6 +115,10 @@ class Ollama:
             raise OllamaError(f"{method} {path} -> HTTP {e.code}: {detail}") from e
         except urllib.error.URLError as e:
             raise OllamaError(f"cannot reach Ollama at {self.host}: {e.reason}") from e
+        except (TimeoutError, OSError) as e:
+            # A read timeout (or reset) surfaces as a raw OSError, not a URLError —
+            # wrap it so callers' `except OllamaError` handling applies.
+            raise OllamaError(f"{method} {path} timed out after {timeout}s: {e}") from e
 
     def reachable(self) -> bool:
         try:
@@ -132,9 +136,14 @@ class Ollama:
     def delete(self, model: str) -> None:
         self._json("/api/delete", method="DELETE", body={"model": model})
 
-    def load(self, model: str, keep_alive: str) -> None:
-        """Load a model into memory (empty generation) so first use is instant."""
-        self._json("/api/generate", method="POST", body={"model": model, "keep_alive": keep_alive, "stream": False})
+    def load(self, model: str, keep_alive: str, timeout: float = 300) -> None:
+        """Load a model into memory (empty generation) so first use is instant.
+
+        First load of a multi-GB model on a small/partial GPU can take a while, so this
+        uses a generous timeout — far longer than the default for quick metadata calls.
+        """
+        self._json("/api/generate", method="POST",
+                   body={"model": model, "keep_alive": keep_alive, "stream": False}, timeout=timeout)
 
     def pull(self, model: str) -> Iterator[dict]:
         """Stream pull progress events (NDJSON) from Ollama."""
