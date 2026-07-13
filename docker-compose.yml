@@ -1,28 +1,25 @@
-# SOUL — run the UI stack with: docker compose up --build
+# SOUL — the app containers: orchestrator + console.  Run with:  make up
 #
-# soul-orchestrator is currently the mock (SPEC §5 contracts). When the real
-# Spring Boot service lands, its build context replaces this one — same service
-# name, same port, and soul-console needs no changes.
+# Ollama is NOT a service here: it runs host-native on the GPU (see the repo
+# README / `make ollama-serve`). The orchestrator image's build context is the
+# repo ROOT because it bakes in skillpool/ + hookspool/.
 #
-# Ollama is behind the `ollama` profile so a plain `up` stays fast (no multi-GB
-# model downloads). Bring it up + provision models with:
-#     docker compose --profile ollama up -d soul-ollama
-#     docker compose --profile ollama run --rm soul-model-init sync
-# For NVIDIA GPU, add the override file:
-#     docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ollama up -d soul-ollama
+# The orchestrator reaches the host's Ollama via host.containers.internal, so
+# host Ollama must listen on 0.0.0.0:11434 (`make ollama-serve` sets that).
 services:
   soul-orchestrator:
     build:
-      context: ./soul-console
-      dockerfile: mock/Dockerfile
+      context: .
+      dockerfile: soul-orchestrator/Dockerfile
     container_name: soul-orchestrator
     environment:
-      HOST: 0.0.0.0
-      PORT: "7788"
+      OLLAMA_HOST: http://host.containers.internal:11434
+    extra_hosts:
+      - "host.containers.internal:host-gateway"   # map the host so the container can reach host Ollama
     ports:
       - "7788:7788" # optional: direct API access for debugging
     healthcheck:
-      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:7788/actuator/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7788/actuator/health"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -38,44 +35,3 @@ services:
     depends_on:
       soul-orchestrator:
         condition: service_healthy
-
-  # ----- Ollama (profile: ollama) -------------------------------------------
-  # Local model runtime. The real soul-orchestrator will depend on
-  # soul-model-init completing; the current mock does not use Ollama.
-  soul-ollama:
-    image: docker.io/ollama/ollama:latest
-    container_name: soul-ollama
-    profiles: [ollama]
-    volumes:
-      - soul-ollama-models:/root/.ollama   # named volume — model blobs survive rebuilds
-    ports:
-      - "127.0.0.1:11434:11434"            # localhost only — Ollama's API has no auth
-    environment:
-      OLLAMA_KEEP_ALIVE: "30m"
-      OLLAMA_MAX_LOADED_MODELS: "2"        # SPEC §9 max-concurrent-generations
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    restart: unless-stopped
-
-  # One-shot: reconcile Ollama against models.yaml, then exit.
-  #   docker compose --profile ollama run --rm soul-model-init sync
-  soul-model-init:
-    build:
-      context: ./soul-scripts/ollama
-    image: soul-model-init
-    profiles: [ollama]
-    environment:
-      OLLAMA_HOST: http://soul-ollama:11434
-      OLLAMA_DATA_PATH: /root/.ollama
-    volumes:
-      - soul-ollama-models:/root/.ollama   # read-only-ish: only used for the disk guard
-    depends_on:
-      soul-ollama:
-        condition: service_healthy
-
-volumes:
-  soul-ollama-models:

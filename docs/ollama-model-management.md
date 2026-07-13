@@ -32,28 +32,25 @@ which models SOUL needs; one script reconciles reality against that manifest.
 
 ## 2. Design Overview
 
+> **Topology note:** Ollama runs **host-native on the GPU**, not in a container — rootless
+> podman can't reach the GPU here without the NVIDIA Container Toolkit + a CDI spec. Only the
+> orchestrator and console are containers; they reach the host's Ollama via
+> `host.containers.internal:11434`. Model management runs on the host too.
+
 ```
-                 docker-compose.yml
-┌──────────────────────────────────────────────────────┐
-│                                                      │
-│  ┌────────────────┐  pulls models on startup         │
-│  │ soul-model-init │──────────────┐                  │
-│  │  (one-shot job) │              ▼                  │
-│  └────────────────┘   ┌─────────────────────┐        │
-│                       │  soul-ollama         │       │
-│  ┌────────────────┐   │  (ollama/ollama)     │       │
-│  │soul-orchestrator│──▶│  :11434, healthcheck │       │
-│  └────────────────┘   │  volume: model store │       │
-│                       └─────────────────────┘        │
-└──────────────────────────────────────────────────────┘
-                               ▲
-        soul-scripts/ollama/   │ same REST API, host or container
-┌──────────────────────────────┴───────────────────────┐
-│  models.yaml   ── declarative manifest (what SHOULD   │
-│                   be installed, per agent role)       │
-│  manage.py     ── reconciler CLI: status / sync /     │
-│                   pull / rm / prune / warm / verify   │
-└──────────────────────────────────────────────────────┘
+   HOST                                          CONTAINERS (podman/Docker)
+┌──────────────────────────────┐             ┌──────────────────────────────┐
+│  Ollama  (ollama/ollama)     │  host.      │  soul-orchestrator           │
+│  :11434 on 0.0.0.0, on GPU   │◄─containers─│  (Spring Boot Manager)       │
+│  models in ~/.ollama         │  .internal  │                              │
+└──────────────────────────────┘             │  soul-console (nginx UI)     │
+              ▲                               └──────────────────────────────┘
+              │ REST API (localhost:11434)
+┌─────────────┴────────────────┐
+│  soul-scripts/ollama/  (host) │
+│  models.yaml ── declarative manifest (what SHOULD be installed, per role)
+│  manage.py   ── reconciler CLI: status / sync / pull / rm / prune / warm / verify
+└──────────────────────────────┘
 ```
 
 Two pieces, one source of truth:
@@ -62,56 +59,51 @@ Two pieces, one source of truth:
    it, and how it should be kept warm. The orchestrator's agent↔model bindings must be a
    subset of this file (checked by `manage.py verify`).
 2. **`manage.py`** — a Python CLI that talks to Ollama's REST API (never the `ollama` binary,
-   so it works identically against the container, a host install, or a remote box).
+   so it works identically against a host install or a remote box).
 
 ---
 
-## 3. Docker Integration
+## 3. Deployment
 
-### 3.1 `soul-ollama` service
+### 3.1 Ollama — host-native
 
-```yaml
-soul-ollama:
-  image: docker.io/ollama/ollama:latest
-  container_name: soul-ollama
-  volumes:
-    - soul-ollama-models:/root/.ollama      # named volume — models survive rebuilds
-  ports:
-    - "127.0.0.1:11434:11434"               # localhost only — API has no auth
-  environment:
-    OLLAMA_KEEP_ALIVE: "30m"                # keep recently used models in RAM
-    OLLAMA_MAX_LOADED_MODELS: "2"           # matches SPEC §9 max-concurrent-generations
-  healthcheck:
-    test: ["CMD", "ollama", "list"]
-    interval: 15s
-    timeout: 5s
-    retries: 10
-    start_period: 20s
-  restart: unless-stopped
+Ollama is installed and run on the host so it uses the NVIDIA GPU directly. `make ollama-install`
+(part of `make setup`) installs it via the official script and runs it as a systemd service with
+a drop-in that binds `0.0.0.0:11434` — so the orchestrator container can reach it via
+`host.containers.internal`:
+
+```bash
+make ollama-install                          # install + systemd service on 0.0.0.0:11434 (uses sudo)
+# equivalently, foreground instead of the service:
+OLLAMA_HOST=0.0.0.0:11434 ollama serve       # = make ollama-serve
 ```
 
-- **GPU (optional, NVIDIA):** enabled via a compose profile (`--profile gpu`) that adds
-  `deploy.resources.reservations.devices` with `driver: nvidia`. CPU-only remains the default
-  so the stack works on any machine.
-- The named volume is the important part: model blobs are 4–10 GB each; they must never live
-  in a container layer.
+- **GPU is automatic.** Host-native Ollama uses the GPU when the driver is present — no NVIDIA
+  Container Toolkit or CDI setup. On a small GPU it offloads as many layers as fit; CPU does the rest.
+- Models live in `~/.ollama` (blobs are 4–10 GB each) — persistent across restarts by nature.
+- Tunables (`OLLAMA_KEEP_ALIVE`, `OLLAMA_MAX_LOADED_MODELS`) are set in the environment that
+  launches `ollama serve`.
 
-### 3.2 `soul-model-init` one-shot job
+### 3.2 Provisioning models
 
-A tiny service built from `soul-scripts/` that runs `manage.py sync` against `soul-ollama`
-and exits. `soul-orchestrator` gains
-`depends_on: { soul-model-init: { condition: service_completed_successfully } }`, so the
-backend never starts against a half-provisioned Ollama.
+No one-shot container. Reconcile the host Ollama against the manifest directly:
 
-First `sync` on a fresh volume downloads tens of GB — the job streams pull progress to its
-logs (`docker compose logs -f soul-model-init`) and must tolerate being restarted midway
-(Ollama resumes partial pulls server-side).
+```bash
+make models-sync        # manage.py sync — pull required, warm the warm ones (idempotent)
+```
+
+`soul-orchestrator` does **not** hard-depend on the model being present: it tolerates Ollama
+being unreachable at boot and surfaces an `error` event, so start order is not load-bearing.
+First `sync` downloads a few GB; Ollama resumes partial pulls server-side if interrupted.
 
 ### 3.3 Networking
 
-- In-stack consumers use `http://soul-ollama:11434`.
-- Host consumers (dev scripts, local orchestrator run) use `http://localhost:11434`.
+- The orchestrator **container** reaches host Ollama via `http://host.containers.internal:11434`
+  (compose maps it with `extra_hosts: ["host.containers.internal:host-gateway"]`).
+- Host consumers (dev scripts, `./gradlew bootRun`) use `http://localhost:11434`.
 - `manage.py` takes `--host` / `OLLAMA_HOST` env, defaulting to `http://localhost:11434`.
+- Ollama's API is unauthenticated; on `0.0.0.0` it's reachable on the LAN, so firewall port
+  11434 or keep the box off untrusted networks.
 
 ---
 
@@ -190,8 +182,7 @@ for a management tool. Exit code 0/1 so it composes with `&&`, CI, and the init 
 soul-scripts/
 └── ollama/
     ├── models.yaml        # manifest (section 4)
-    ├── manage.py          # CLI (this section)
-    ├── Dockerfile         # tiny python:3.12-alpine image for soul-model-init
+    ├── manage.py          # CLI (this section) — run on the host
     └── README.md          # usage cheatsheet
 ```
 
@@ -226,8 +217,9 @@ Super Agent path touches on every request.
 
 ## 8. Security
 
-- Ollama's API is **unauthenticated** — the container publishes on `127.0.0.1` only, never
-  `0.0.0.0`. In-stack traffic stays on the compose network.
+- Ollama's API is **unauthenticated**. Host-native Ollama binds `0.0.0.0:11434` so the
+  orchestrator container can reach it via `host.containers.internal` — which also exposes it
+  on the LAN, so firewall port 11434 or keep the box off untrusted networks.
 - `manage.py` refuses `--host` targets that aren't localhost or the compose hostname unless
   `--i-know-what-im-doing` is passed (guards against pointing `prune` at someone else's box).
 - No model auto-updates: `sync` never re-pulls an installed pinned tag; upgrades are an
@@ -240,13 +232,13 @@ Super Agent path touches on every request.
 | Phase | Deliverable |
 |---|---|
 | **1** | `soul-scripts/ollama/`: `models.yaml`, `manage.py` with `status` / `pull` / `sync` / `verify`, README |
-| **2** | Compose: `soul-ollama` service + volume + healthcheck; GPU profile |
-| **3** | `soul-model-init` one-shot job + orchestrator `depends_on` wiring |
+| **2** | Host-native Ollama on the GPU (`make ollama-serve`, `0.0.0.0:11434`) |
+| **3** | Orchestrator container → host Ollama via `host.containers.internal`; `make models-sync` |
 | **4** | `warm`, `rm`, `prune`, disk guard, `--json` output |
 | **5** | CI: `manage.py verify` as a check on PRs touching the manifest or bindings |
 
-Phases 1–2 are independently useful (host-run script against the containerized Ollama);
-3–5 land as the orchestrator work starts.
+Phase 1 is independently useful (host-run script against a local Ollama); 2–5 land as the
+orchestrator work starts.
 
 ---
 

@@ -104,10 +104,14 @@ change. Hook **blocks** surface as `error` for v1 (see §6 open question for a r
 ```yaml
 soul:
   ollama:
-    base-url: http://soul-ollama:11434   # localhost:11434 for host dev
+    base-url: ${OLLAMA_HOST:http://localhost:11434}   # container sets host.containers.internal:11434
   web:
     cors-allowed-origin: http://localhost:7787
 ```
+
+Ollama is host-native (on the GPU); the orchestrator container is pointed at it with
+`OLLAMA_HOST=http://host.containers.internal:11434`, and `localhost:11434` is the default for
+host dev (`./gradlew bootRun`).
 
 ---
 
@@ -135,14 +139,15 @@ just empty — then land the activity view.
 ## 5. Compose rewiring
 
 ```
-soul-console ──/api,/ws──► soul-orchestrator (real, Spring Boot) ──► soul-ollama
+[container] soul-console ──/api,/ws──► [container] soul-orchestrator ──host.containers.internal──► [host] Ollama (GPU)
 ```
 
-- `soul-console.ORCHESTRATOR_URL` → the real `soul-orchestrator` service.
-- The real orchestrator gets built into the stack (replacing the mock service slot) and
-  `depends_on` a healthy `soul-ollama` + `soul-model-init` (so the Manager's model is present).
-- The **mock is kept** as an opt-in profile for UI-only development (fast, no model/GPU needed) —
-  `make up` can still run mock-backed, while a new target runs the real stack.
+- `soul-console.ORCHESTRATOR_URL` → the real `soul-orchestrator` service (both containers).
+- The orchestrator container reaches host Ollama via `host.containers.internal:11434`
+  (`extra_hosts: ["host.containers.internal:host-gateway"]`); no `depends_on` on Ollama since
+  it's a host process and the Manager tolerates it being unreachable at boot.
+- Ollama runs host-native on the GPU; the model is provisioned host-side with `make models-sync`.
+  There is no mock backend.
 
 ---
 
@@ -155,9 +160,8 @@ soul-console ──/api,/ws──► soul-orchestrator (real, Spring Boot) ─�
    to the orb, or keep the orb as its sole representation and use the rail only for skills/hooks?
 3. **Streaming granularity.** Stream `token` events during the model's final answer only, or also
    narrate intermediate steps ("running current-time…") as assistant-visible text vs. rail-only?
-4. **Real vs mock default.** Should `make up` default to the mock (fast) or the real stack (needs
-   Ollama + a pulled model)? Proposed: mock stays the default for `make up`; `make up-real` (or a
-   profile) runs the real Manager.
+4. **Real vs mock default.** *Resolved:* the mock backend was removed — `make up` runs the real
+   stack (orchestrator + console containers) against host-native Ollama. No mock path remains.
 
 ---
 
@@ -168,7 +172,7 @@ soul-console ──/api,/ws──► soul-orchestrator (real, Spring Boot) ─�
 | **1** | Ollama `WebClient` + `ManagerAgent` loop (manager-agent.md phase 3): chat, skills as tools, bounded loop |
 | **2** | Web surface: REST controllers + `/ws/stream`, mapping the loop to WS events (§3.1–3.2) |
 | **3** | Hook dispatch wired into the loop (phase 4); blocks surfaced to the UI |
-| **4** | Compose rewiring + a `make up-real` target; keep the mock profile for UI-only dev |
+| **4** | Compose rewiring: orchestrator + console containers → host-native Ollama (`make up`) |
 | **5** | UI: activity rail (skills/hooks) + capabilities display |
 
 Steps 1–2 already let the UI talk to the real Manager end-to-end; 3–5 add hooks and visibility.

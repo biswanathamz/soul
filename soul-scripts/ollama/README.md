@@ -4,8 +4,8 @@ Declarative Ollama model management for SOUL. One manifest ([models.yaml](models
 declares which models SOUL needs; one script ([manage.py](manage.py)) reconciles a running
 Ollama against it. Design: [docs/ollama-model-management.md](../../docs/ollama-model-management.md).
 
-`manage.py` talks only to Ollama's REST API, so the same commands work against the compose
-container, a host install, or a remote box.
+`manage.py` talks only to Ollama's REST API, so the same commands work against a host
+install (the default in SOUL), or a remote box.
 
 ## Requirements
 
@@ -29,9 +29,9 @@ Global flags: `--host` (or `$OLLAMA_HOST`, default `http://localhost:11434`), `-
 ## Typical use
 
 ```bash
-# Against the compose Ollama (see repo-root docker-compose.yml):
-docker compose --profile ollama up -d soul-ollama
-python manage.py --host http://localhost:11434 sync
+# Against host-native Ollama (how SOUL runs it — see repo-root docker-compose.yml + Makefile):
+make ollama-serve                                   # or: OLLAMA_HOST=0.0.0.0:11434 ollama serve
+python manage.py --host http://localhost:11434 sync # or: make models-sync
 
 # CI / pre-commit sanity check (no Ollama needed — static checks still run):
 python manage.py verify

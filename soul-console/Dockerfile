@@ -11,7 +11,7 @@ RUN npm run build
 FROM docker.io/library/nginx:1.27-alpine
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
-# Overridden by compose; points at the real soul-orchestrator once it exists.
+# Overridden by compose; points at the real soul-orchestrator.
 ENV ORCHESTRATOR_URL=http://soul-orchestrator:7788
 EXPOSE 7787
 HEALTHCHECK --interval=15s --timeout=3s --retries=5 \
