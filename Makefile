@@ -25,6 +25,11 @@ up: ## Start the UI stack in the background (→ http://localhost:7787)
 	$(COMPOSE) up -d $(UI_SERVICES)
 	@echo "SOUL console → http://localhost:7787"
 
+.PHONY: up-real
+up-real: ## Start the REAL stack (Ollama + Spring orchestrator + UI) — needs a pulled model
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.real.yml up -d --build soul-ollama soul-orchestrator soul-console
+	@echo "Real SOUL → http://localhost:7787  (run 'make models-sync' first if the model isn't pulled)"
+
 .PHONY: down
 down: ## Stop and remove all SOUL containers
 	$(COMPOSE) down
@@ -124,8 +129,20 @@ test: ## Run console unit/component tests
 console-build: ## Typecheck + production build of the console
 	cd $(CONSOLE_DIR) && npm run build
 
+.PHONY: pools-verify
+pools-verify: ## Validate + smoke-test skillpool/ and hookspool/ (no model needed)
+	$(PYTHON) soul-scripts/pooltest.py
+
+.PHONY: orchestrator-test
+orchestrator-test: ## Run the orchestrator's JUnit tests (Spring Boot)
+	cd soul-orchestrator && ./gradlew test
+
+.PHONY: orchestrator-build
+orchestrator-build: ## Build the orchestrator jar
+	cd soul-orchestrator && ./gradlew build
+
 .PHONY: verify
-verify: models-verify test ## Run all checks (manifest + console tests)
+verify: models-verify pools-verify orchestrator-test test ## Run all checks (manifest + pools + orchestrator + console)
 
 # ---------------------------------------------------------------------------
 ##@ Cleanup

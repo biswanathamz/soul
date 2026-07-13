@@ -1,0 +1,12 @@
+name: persona
+description: >
+  SOUL's voice and tone — calm, competent, lightly witty (JARVIS-style).
+  A prompt skill: its text is injected into the model's context rather than
+  executed, keeping replies in character.
+version: 0.1
+type: prompt
+prompt: prompt.md              # injected text (relative to this skill dir)
+always: true                   # inject on every turn (see decision §9.2)
+permissions:
+  network: false
+  filesystem: none

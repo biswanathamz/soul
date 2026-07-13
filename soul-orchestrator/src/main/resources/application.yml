@@ -1,0 +1,21 @@
+soul:
+  ollama:
+    base-url: ${OLLAMA_HOST:http://localhost:11434}
+    request-timeout-seconds: 120
+  web:
+    cors-allowed-origin: http://localhost:7787
+
+  pools:                          # loaded once, shared by every agent
+    skills: { path: ../skillpool, enabled: true }
+    hooks:  { path: ../hookspool, enabled: true, default-timeout-seconds: 5 }
+
+  agents:
+    super:                        # the Manager
+      model: llama3.1:8b
+      persona: jarvis
+      max-steps: 6
+      skills: [echo, current-time, persona]
+      hooks:  [audit-log, block-secrets, inject-time]
+
+server:
+  port: 7788

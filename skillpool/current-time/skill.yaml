@@ -1,0 +1,21 @@
+name: current-time
+description: >
+  Return the current local date and time. Use when the user asks what the
+  time or date is, or when a task needs the present moment — models don't
+  know "now" on their own.
+version: 0.1
+type: script
+entrypoint: run.py
+timeout_seconds: 5
+parameters:
+  type: object
+  properties:
+    format:
+      type: string
+      description: "Optional strftime format; defaults to a friendly local string"
+  required: []
+permissions:
+  network: false
+  filesystem: none
+example:
+  input: {}
