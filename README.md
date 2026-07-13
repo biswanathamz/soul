@@ -15,11 +15,11 @@ Everything runs locally — no cloud APIs, no data leaving your machine.
 | Service | What | Port |
 | --- | --- | --- |
 | `soul-console` | React UI (chat + voice, black & yellow theme) | `7787` |
-| `soul-orchestrator` | Agent orchestration — **currently a mock**; Spring Boot service later | `7788` |
+| `soul-orchestrator` | The Manager agent — Spring Boot service, drives the agent loop | `7788` |
 | `soul-scripts/ollama` | Declarative Ollama model management (manifest + `manage.py`) | — |
-| `soul-ollama` | Local model runtime (Ollama), started on demand | `11434` |
+| `soul-ollama` | Local model runtime (Ollama) — the single source of models | `11434` |
 
-Today the stack runs the UI against a **mock orchestrator** (it implements the real API contracts), so you get a fully working chat experience before the Spring Boot backend and Ollama exist.
+The UI talks to the real Spring Boot orchestrator, which runs the Manager agent against local **Ollama** models. Ollama is the one and only model provider — there is no mock backend.
 
 ## Prerequisites
 
@@ -33,10 +33,11 @@ Nothing else needs installing globally — the container images bring their own 
 ## Quick start
 
 ```bash
-make up
+make models-sync   # one-time: pull the Manager's model into Ollama (a few GB)
+make up            # build + start Ollama, the orchestrator, and the UI
 ```
 
-Then open **http://localhost:7787**. That starts the UI and the mock orchestrator as podman containers in the background. First run builds the images (a minute or two); after that it's a few seconds.
+Then open **http://localhost:7787**. `make up` builds the images (first run: a few minutes) and starts Ollama, the Spring Boot orchestrator, and the UI as containers in the background. `make models-sync` only needs re-running when the model list changes.
 
 Stop everything with:
 
@@ -44,20 +45,18 @@ Stop everything with:
 make down
 ```
 
-That's the whole loop. `make up` does **not** download any models — it's a fast, self-contained UI demo.
-
 ## Running with Make
 
 `make help` lists every target. The common ones:
 
 | Command | What it does |
 | --- | --- |
-| `make up` | Start the UI stack (→ http://localhost:7787) |
+| `make up` | Build + start the full stack (→ http://localhost:7787) |
 | `make down` | Stop and remove all SOUL containers |
 | `make restart` | `down` then `up` |
 | `make build` / `make rebuild` | Build images / rebuild with no cache |
 | `make ps` | Show running containers |
-| `make logs` | Tail the UI stack logs |
+| `make logs` | Tail the stack logs |
 
 The Makefile uses **podman-compose** by default. To use Docker instead, override the engine on any target:
 
@@ -81,15 +80,15 @@ Which models SOUL uses is declared in [soul-scripts/ollama/models.yaml](soul-scr
 
 ## Host dev mode (no containers)
 
-For fast UI iteration with hot reload, run the console and mock backend directly. Use two terminals:
+For fast UI iteration with hot reload, run the orchestrator and the console directly on the host. You need Ollama running (`make ollama-up`) with the model pulled (`make models-sync`). Use two terminals:
 
 ```bash
-make install     # one-time: npm install
-make mock        # terminal 1: mock orchestrator (REST + WS on :7788)
-make dev         # terminal 2: Vite dev server on :7787
+make install                                   # one-time: npm install
+cd soul-orchestrator && ./gradlew bootRun      # terminal 1: the Manager on :7788
+make dev                                        # terminal 2: Vite dev server on :7787
 ```
 
-Other dev targets: `make test` (unit/component tests), `make console-build` (typecheck + production build), `make verify` (manifest checks + tests).
+The Vite dev server proxies `/api`, `/actuator`, and `/ws` to the orchestrator on `:7788`. Other dev targets: `make test` (unit/component tests), `make console-build` (typecheck + production build), `make orchestrator-test` (JUnit), `make verify` (all checks).
 
 ## Cleanup
 

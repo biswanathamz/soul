@@ -5,21 +5,21 @@ Design: [docs/TDD-soul-console.md](../docs/TDD-soul-console.md).
 
 ## Run (dev)
 
+Start the orchestrator first (`make up` from the repo root, or run the jar), then:
+
 ```bash
 npm install
-npm run dev:mock   # terminal 1 — mock soul-orchestrator on :7788
-npm run dev        # terminal 2 — UI on http://localhost:7787
+npm run dev        # UI on http://localhost:7787
 ```
 
-The Vite dev server proxies `/api` and `/ws` to `:7788`, so the same UI works unchanged
-against the real Spring Boot orchestrator once it exists — just stop the mock.
+The Vite dev server proxies `/api`, `/actuator`, and `/ws` to the orchestrator on `:7788`
+(override with `VITE_API_TARGET`).
 
 ## Scripts
 
 | Command | What |
 | --- | --- |
-| `npm run dev` | Vite dev server on :7787 |
-| `npm run dev:mock` | Mock backend (REST + WS per SPEC §5) on :7788 |
+| `npm run dev` | Vite dev server on :7787 (proxies to the orchestrator on :7788) |
 | `npm test` | Vitest unit/component tests |
 | `npm run build` | Typecheck + production build to `dist/` |
 | `npm run preview` | Serve the production build on :7787 |
@@ -30,12 +30,12 @@ against the real Spring Boot orchestrator once it exists — just stop the mock.
 From the repo root:
 
 ```bash
-docker compose up --build    # UI on http://localhost:7787, mock orchestrator on :7788
+make up    # full stack: Ollama + Spring orchestrator + UI on http://localhost:7787
 ```
 
 The UI image is a two-stage build (Node build → nginx). nginx serves the SPA on 7787 and
-proxies `/api`, `/actuator`, and `/ws` (with WebSocket upgrade) to `ORCHESTRATOR_URL` —
-so the container also works unchanged against the real Spring Boot orchestrator later.
+proxies `/api`, `/actuator`, and `/ws` (with WebSocket upgrade) to `ORCHESTRATOR_URL`,
+the real Spring Boot orchestrator.
 
 ## Voice
 

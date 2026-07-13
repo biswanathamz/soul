@@ -1,6 +1,5 @@
 node_modules
 dist
 coverage
-mock/node_modules
 .vite
 *.log

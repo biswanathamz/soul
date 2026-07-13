@@ -11,39 +11,35 @@ PYTHON  ?= python3
 
 CONSOLE_DIR := soul-console
 MANAGE      := $(PYTHON) soul-scripts/ollama/manage.py
-UI_SERVICES := soul-orchestrator soul-console
+STACK       := soul-ollama soul-orchestrator soul-console
+BUILDABLE   := soul-orchestrator soul-console
 OLLAMA_URL  := http://localhost:11434
 
 .DEFAULT_GOAL := help
 
 # ---------------------------------------------------------------------------
-##@ Stack — UI + mock orchestrator
+##@ Stack — Ollama + Manager + UI
 # ---------------------------------------------------------------------------
 
 .PHONY: up
-up: ## Start the UI stack in the background (→ http://localhost:7787)
-	$(COMPOSE) up -d $(UI_SERVICES)
-	@echo "SOUL console → http://localhost:7787"
-
-.PHONY: up-real
-up-real: ## Start the REAL stack (Ollama + Spring orchestrator + UI) — needs a pulled model
-	$(COMPOSE) -f docker-compose.yml -f docker-compose.real.yml up -d --build soul-ollama soul-orchestrator soul-console
-	@echo "Real SOUL → http://localhost:7787  (run 'make models-sync' first if the model isn't pulled)"
+up: ## Start the full stack (Ollama + Manager + UI) in the background (→ http://localhost:7787)
+	$(COMPOSE) up -d --build $(STACK)
+	@echo "SOUL console → http://localhost:7787  (run 'make models-sync' first if the model isn't pulled)"
 
 .PHONY: down
 down: ## Stop and remove all SOUL containers
 	$(COMPOSE) down
 
 .PHONY: restart
-restart: down up ## Restart the UI stack
+restart: down up ## Restart the stack
 
 .PHONY: build
-build: ## Build the UI stack images
-	$(COMPOSE) build $(UI_SERVICES)
+build: ## Build the stack images (Manager + UI)
+	$(COMPOSE) build $(BUILDABLE)
 
 .PHONY: rebuild
 rebuild: ## Rebuild images with no cache, then start
-	$(COMPOSE) build --no-cache $(UI_SERVICES)
+	$(COMPOSE) build --no-cache $(BUILDABLE)
 	@$(MAKE) up
 
 .PHONY: ps
@@ -51,8 +47,8 @@ ps: ## Show running SOUL containers
 	@podman ps --filter name=soul --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null || $(COMPOSE) ps
 
 .PHONY: logs
-logs: ## Tail logs from the UI stack
-	$(COMPOSE) logs -f $(UI_SERVICES)
+logs: ## Tail logs from the stack
+	$(COMPOSE) logs -f $(STACK)
 
 # ---------------------------------------------------------------------------
 ##@ Ollama + models
@@ -114,12 +110,8 @@ install: ## npm install in soul-console
 	cd $(CONSOLE_DIR) && npm install
 
 .PHONY: dev
-dev: ## Run the Vite dev server (needs `make mock` in another terminal)
+dev: ## Run the Vite dev server (proxies to the orchestrator on :7788 — start it with `make up` or the jar)
 	cd $(CONSOLE_DIR) && npm run dev
-
-.PHONY: mock
-mock: ## Run the mock orchestrator (REST + WS on :7788)
-	cd $(CONSOLE_DIR) && npm run dev:mock
 
 .PHONY: test
 test: ## Run console unit/component tests
