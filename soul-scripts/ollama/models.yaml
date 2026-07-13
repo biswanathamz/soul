@@ -1,0 +1,37 @@
+# SOUL — Ollama model manifest.
+#
+# Single source of truth for which models SOUL needs. `manage.py sync` makes a
+# running Ollama match this file; `manage.py verify` checks the orchestrator's
+# agent bindings stay a subset of it.
+#
+# Rules:
+#   - Pinned tags only (llama3.1:8b, not llama3.1) — ":latest" drift is how two
+#     machines end up behaving differently.
+#   - `roles` ties each model to a SPEC §3.2 agent role. [] = optional spare.
+#   - `prune` only removes models NOT listed here — this file is a whitelist.
+
+defaults:
+  keep_alive: 30m
+
+models:
+  - name: llama3.1:8b
+    roles: [super, researcher, sysops]   # who binds to it (SPEC §3.2)
+    required: true
+    warm: true                           # preload into RAM at sync time
+
+  - name: qwen2.5-coder:7b
+    roles: [coder]
+    required: true
+    warm: true
+
+  - name: gemma2:9b
+    roles: [writer]
+    required: true
+
+  - name: deepseek-r1:8b
+    roles: [analyst]
+    required: true
+
+  - name: mistral:7b
+    roles: []                            # optional spare for experiments
+    required: false

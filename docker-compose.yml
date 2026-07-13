@@ -1,8 +1,15 @@
-# SOUL — run the whole stack with: docker compose up --build
+# SOUL — run the UI stack with: docker compose up --build
 #
 # soul-orchestrator is currently the mock (SPEC §5 contracts). When the real
 # Spring Boot service lands, its build context replaces this one — same service
 # name, same port, and soul-console needs no changes.
+#
+# Ollama is behind the `ollama` profile so a plain `up` stays fast (no multi-GB
+# model downloads). Bring it up + provision models with:
+#     docker compose --profile ollama up -d soul-ollama
+#     docker compose --profile ollama run --rm soul-model-init sync
+# For NVIDIA GPU, add the override file:
+#     docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ollama up -d soul-ollama
 services:
   soul-orchestrator:
     build:
@@ -31,3 +38,44 @@ services:
     depends_on:
       soul-orchestrator:
         condition: service_healthy
+
+  # ----- Ollama (profile: ollama) -------------------------------------------
+  # Local model runtime. The real soul-orchestrator will depend on
+  # soul-model-init completing; the current mock does not use Ollama.
+  soul-ollama:
+    image: docker.io/ollama/ollama:latest
+    container_name: soul-ollama
+    profiles: [ollama]
+    volumes:
+      - soul-ollama-models:/root/.ollama   # named volume — model blobs survive rebuilds
+    ports:
+      - "127.0.0.1:11434:11434"            # localhost only — Ollama's API has no auth
+    environment:
+      OLLAMA_KEEP_ALIVE: "30m"
+      OLLAMA_MAX_LOADED_MODELS: "2"        # SPEC §9 max-concurrent-generations
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # One-shot: reconcile Ollama against models.yaml, then exit.
+  #   docker compose --profile ollama run --rm soul-model-init sync
+  soul-model-init:
+    build:
+      context: ./soul-scripts/ollama
+    image: soul-model-init
+    profiles: [ollama]
+    environment:
+      OLLAMA_HOST: http://soul-ollama:11434
+      OLLAMA_DATA_PATH: /root/.ollama
+    volumes:
+      - soul-ollama-models:/root/.ollama   # read-only-ish: only used for the disk guard
+    depends_on:
+      soul-ollama:
+        condition: service_healthy
+
+volumes:
+  soul-ollama-models:

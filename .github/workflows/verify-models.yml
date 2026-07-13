@@ -1,0 +1,28 @@
+# Static validation of the Ollama model manifest and orchestrator bindings.
+# No Ollama runs in CI — verify's static checks (pinned tags, bindings ⊆ manifest)
+# run without one; install checks are skipped and reported as such.
+name: verify-models
+
+on:
+  pull_request:
+    paths:
+      - "soul-scripts/ollama/**"
+      - "soul-orchestrator/src/main/resources/application.yml"
+      - ".github/workflows/verify-models.yml"
+  push:
+    branches: [master]
+    paths:
+      - "soul-scripts/ollama/**"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r soul-scripts/ollama/requirements.txt
+      - name: Verify manifest
+        run: python soul-scripts/ollama/manage.py verify

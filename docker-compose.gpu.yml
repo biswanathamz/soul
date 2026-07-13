@@ -1,0 +1,15 @@
+# NVIDIA GPU override for Ollama. Use alongside the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ollama up -d soul-ollama
+#
+# Requires the NVIDIA Container Toolkit on the host (and a working driver).
+# With a small GPU (e.g. 4 GB), Ollama offloads as many layers as fit — a
+# speedup, not necessarily full-GPU inference. CPU-only remains the default.
+services:
+  soul-ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
