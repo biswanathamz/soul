@@ -1,0 +1,31 @@
+# Validate + smoke-test the skill/hook pools on every change.
+# Drives each skill and hook through its JSON stdin/stdout protocol — no model
+# or orchestrator needed (docs/manager-agent.md phase 1).
+name: verify-pools
+
+on:
+  pull_request:
+    paths:
+      - "skillpool/**"
+      - "hookspool/**"
+      - "soul-scripts/pooltest.py"
+      - ".github/workflows/verify-pools.yml"
+  push:
+    branches: [master]
+    paths:
+      - "skillpool/**"
+      - "hookspool/**"
+      - "soul-scripts/pooltest.py"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r soul-scripts/ollama/requirements.txt
+      - name: Validate + smoke-test pools
+        run: python soul-scripts/pooltest.py

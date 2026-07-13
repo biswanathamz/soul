@@ -124,8 +124,12 @@ test: ## Run console unit/component tests
 console-build: ## Typecheck + production build of the console
 	cd $(CONSOLE_DIR) && npm run build
 
+.PHONY: pools-verify
+pools-verify: ## Validate + smoke-test skillpool/ and hookspool/ (no model needed)
+	$(PYTHON) soul-scripts/pooltest.py
+
 .PHONY: verify
-verify: models-verify test ## Run all checks (manifest + console tests)
+verify: models-verify pools-verify test ## Run all checks (manifest + pools + console tests)
 
 # ---------------------------------------------------------------------------
 ##@ Cleanup

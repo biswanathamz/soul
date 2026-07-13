@@ -1,0 +1,6 @@
+name: inject-time
+description: Add the current date and time to the model's context on every turn.
+event: before_model
+entrypoint: run.py
+blocking: false              # modifies context; never vetoes
+timeout_seconds: 5

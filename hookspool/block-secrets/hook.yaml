@@ -1,0 +1,17 @@
+name: block-secrets
+description: Refuse skill calls whose arguments contain obvious credentials.
+event: before_skill
+matcher: ".*"                 # optional: narrow by skill-name / content regex
+entrypoint: run.py
+blocking: true               # may veto the skill call
+always-apply: true           # safety gate — runs for EVERY agent, un-skippable
+timeout_seconds: 5
+
+# pooltest.py drives both paths (AKIA… below is AWS's public docs placeholder, not a real key):
+examples:
+  - event: before_skill
+    payload: { skill: echo, input: { text: "just some harmless text" } }
+    expect: allow
+  - event: before_skill
+    payload: { skill: echo, input: { text: "use AKIAIOSFODNN7EXAMPLE to auth" } }
+    expect: block

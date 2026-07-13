@@ -1,0 +1,6 @@
+name: audit-log
+description: Append every skill call and result to the audit sink. Observe-only.
+event: [before_skill, after_skill]   # a hook may handle one event or a list
+entrypoint: run.py
+blocking: false                      # observe only — never vetoes
+timeout_seconds: 5
