@@ -1,5 +1,10 @@
 # SOUL
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![verify-orchestrator](https://github.com/biswanathamz/soul/actions/workflows/verify-orchestrator.yml/badge.svg)](https://github.com/biswanathamz/soul/actions/workflows/verify-orchestrator.yml)
+[![verify-pools](https://github.com/biswanathamz/soul/actions/workflows/verify-pools.yml/badge.svg)](https://github.com/biswanathamz/soul/actions/workflows/verify-pools.yml)
+[![verify-models](https://github.com/biswanathamz/soul/actions/workflows/verify-models.yml/badge.svg)](https://github.com/biswanathamz/soul/actions/workflows/verify-models.yml)
+
 > 🚧 **Work in progress**
 
 **SOUL** — *Supervised Orchestration of Unified LLM-agents* — is a locally hosted, JARVIS-inspired multi-agent AI assistant.
@@ -116,5 +121,17 @@ Models live in the host's Ollama store (`~/.ollama`); remove one with `ollama rm
 
 ## Docs
 
+- 🗺️ Architecture map: [ARCHITECTURE.md](ARCHITECTURE.md)
 - 📄 System design: [docs/SPEC.md](docs/SPEC.md)
 - 🎨 UI design: [docs/TDD-soul-console.md](docs/TDD-soul-console.md)
+
+## Contributing
+
+Contributions are welcome — bug reports, docs, new **skills/hooks** (the easiest
+entry point), and code. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md). All changes land via PR (`master` is
+protected); `make verify` runs the full check suite locally.
+
+## License
+
+SOUL is open source under the [MIT License](LICENSE).
