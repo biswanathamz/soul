@@ -12,8 +12,8 @@ PYTHON  ?= python3
 
 CONSOLE_DIR := soul-console
 MANAGE      := $(PYTHON) soul-scripts/ollama/manage.py
-STACK       := soul-orchestrator soul-console
-BUILDABLE   := soul-orchestrator soul-console
+STACK       := soul-orchestrator soul-voice soul-console
+BUILDABLE   := soul-orchestrator soul-voice soul-console
 OLLAMA_URL  := http://localhost:11434
 
 .DEFAULT_GOAL := help
@@ -32,8 +32,8 @@ setup: models-deps ollama-install models-sync ## One-time: install Python deps +
 # ---------------------------------------------------------------------------
 
 .PHONY: up
-up: ## Build + start the Manager + UI containers (→ http://localhost:7787). Run 'make setup' once first
-	$(COMPOSE) up -d --build $(STACK)
+up: ## Build + start the app containers (→ http://localhost:7787). Run 'make setup' once first
+	$(COMPOSE) up -d --build --force-recreate $(STACK)
 	@echo "SOUL console → http://localhost:7787  (first time? run 'make setup' to install host Ollama + pull the model)"
 
 .PHONY: down
@@ -159,8 +159,16 @@ orchestrator-test: ## Run the orchestrator's JUnit tests (Spring Boot)
 orchestrator-build: ## Build the orchestrator jar
 	cd soul-orchestrator && ./gradlew build
 
+.PHONY: voice-test
+voice-test: ## Run soul-voice contract tests (auto-creates its venv; Piper is stubbed)
+	@test -x soul-voice/.venv/bin/pytest || { \
+	  echo "setting up soul-voice/.venv …"; \
+	  $(PYTHON) -m venv soul-voice/.venv && \
+	  soul-voice/.venv/bin/pip install -q -r soul-voice/requirements-dev.txt; }
+	cd soul-voice && .venv/bin/python -m pytest -q
+
 .PHONY: verify
-verify: models-verify pools-verify orchestrator-test test ## Run all checks (manifest + pools + orchestrator + console)
+verify: models-verify pools-verify orchestrator-test voice-test test ## Run all checks (manifest + pools + orchestrator + voice + console)
 
 # ---------------------------------------------------------------------------
 ##@ Cleanup

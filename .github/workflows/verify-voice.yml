@@ -1,0 +1,24 @@
+name: verify-voice
+
+on:
+  pull_request:
+    paths:
+      - "soul-voice/**"
+      - ".github/workflows/verify-voice.yml"
+  push:
+    branches: [master]
+    paths:
+      - "soul-voice/**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Piper is stubbed in the tests — no models, no onnxruntime download.
+      - run: pip install -r soul-voice/requirements-dev.txt
+      - run: python -m pytest -q
+        working-directory: soul-voice

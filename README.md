@@ -16,12 +16,13 @@ Everything runs locally — no cloud APIs, no data leaving your machine.
 | --- | --- | --- | --- |
 | `soul-console` | React UI (chat + voice, black & yellow theme) | container | `7787` |
 | `soul-orchestrator` | The Manager agent — Spring Boot service, drives the agent loop | container | `7788` |
+| `soul-voice` | Speech: neural TTS (Piper) + local STT (faster-whisper) | container | `7789` |
 | `soul-scripts/ollama` | Declarative Ollama model management (manifest + `manage.py`) | host script | — |
 | Ollama | Local model runtime — the single source of models | **host-native (GPU)** | `11434` |
 
 The UI talks to the real Spring Boot orchestrator, which runs the Manager agent against local **Ollama** models. Ollama is the one and only model provider — there is no mock backend.
 
-**Topology:** only the orchestrator and the console run in containers. **Ollama runs natively on the host** so it can use the NVIDIA GPU directly (rootless containers can't reach the GPU here without extra toolkit setup). The orchestrator container reaches the host's Ollama via `host.containers.internal:11434`, so Ollama must listen on `0.0.0.0:11434` (not just localhost).
+**Topology:** the orchestrator, the voice service, and the console run in containers. **Ollama runs natively on the host** so it can use the NVIDIA GPU directly (rootless containers can't reach the GPU here without extra toolkit setup). The orchestrator container reaches the host's Ollama via `host.containers.internal:11434`, so Ollama must listen on `0.0.0.0:11434` (not just localhost).
 
 ## Prerequisites
 
@@ -110,7 +111,7 @@ Models live in the host's Ollama store (`~/.ollama`); remove one with `ollama rm
 
 ## Notes
 
-- **Use `make`, not `podman compose` directly.** It uses `podman-compose` (hyphenated), since `podman compose` (spaced) routes to a broken provider on some setups.
+- **Use `make`, not `podman compose` directly.** It uses `podman-compose` (hyphenated), since `podman compose` (spaced) routes to a broken provider on some setups. `make up` also passes `--force-recreate` — podman-compose 1.0.6 rebuilds images but often leaves the old container running without it, so you'd silently keep testing stale code.
 - **Ollama must listen on `0.0.0.0`** for the orchestrator container to reach it via `host.containers.internal` — `make ollama-serve` sets that. Its API is unauthenticated, so keep the box off untrusted networks or firewall port 11434.
 
 ## Docs

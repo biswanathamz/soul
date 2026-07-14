@@ -69,14 +69,17 @@ These are the invariants every component is built to respect.
                     └────────────────┘ └────────────────┘ └────────────────────────┘
            ── containerized ──                            ──── on the host ────
 
+     soul-console ──POST /voice/api/v1/tts──▶ soul-voice (:7789, Piper neural TTS,
+                    ◀──── audio/wav ────────  containerized, CPU-only)
+
      soul-scripts/ollama —— declarative model management (manifest + manage.py),
                             run on the host against Ollama's REST API, out of band
 ```
 
-The console and orchestrator run as **containers**; **Ollama runs host-native on the GPU**.
-Three long-running services (**console**, **orchestrator**, **ollama**) plus one
-out-of-band toolchain (**scripts**) and two shared capability pools (**skillpool**,
-**hookspool**).
+The console, orchestrator, and voice service run as **containers**; **Ollama runs
+host-native on the GPU**. Four long-running services (**console**, **orchestrator**,
+**voice**, **ollama**) plus one out-of-band toolchain (**scripts**) and two shared
+capability pools (**skillpool**, **hookspool**).
 
 ---
 
@@ -132,6 +135,23 @@ Manager's brain).
 It binds `0.0.0.0:11434` so the orchestrator *container* can reach it via
 `host.containers.internal`. The orchestrator tolerates Ollama being unreachable at boot,
 surfacing an `error` event rather than crashing.
+
+### 3.3b `soul-voice` — speech (TTS + STT)  ·  `:7789`  ·  Python (FastAPI + Piper + faster-whisper)
+
+SOUL's voice *and* ears (docs/voice-and-face.md). A stateless local speech service.
+Runs as a container, **CPU-only by design** — it never competes with Ollama for the GPU.
+All models are baked into the image, so it works with no internet.
+
+- **TTS**: `POST /api/v1/tts` `{text, voice?, speed?}` → WAV in a natural female voice
+  (Piper, default `en_US-amy-medium`) · `GET /api/v1/voices` · `GET /health`
+- **STT**: `POST /api/v1/stt` (16 kHz mono WAV body) → `{text}` (faster-whisper `base.en`,
+  VAD-filtered). The console's default recognition engine — mic audio never leaves the box.
+  Also powers the **local wake word** ("Hey SOUL" spotting), the **triple-clap wake**
+  (👏👏👏 — pure DSP on the mic stream, no transcription), and **barge-in**.
+- Reached same-origin from the browser via the `/voice/*` proxy (Vite in dev, nginx in prod).
+- The console speaks answers **sentence-by-sentence as tokens stream** (splitter + ordered
+  audio queue in `soul-console/src/voice/`), falling back to browser `speechSynthesis`
+  if the service is down. Voice *manner* (polite, warm) lives in the `persona` skill.
 
 ### 3.4 `soul-scripts/ollama` — model management  ·  Python
 
@@ -279,7 +299,8 @@ container processes interoperate freely — and only the app containers ever sho
 (Ollama is a host process).
 
 **CI** (`.github/workflows/`): `verify-models.yml` (manifest), `verify-pools.yml` (skill/hook
-smoke tests), `verify-orchestrator.yml` (JUnit). `make verify` runs the whole set locally.
+smoke tests), `verify-orchestrator.yml` (JUnit), `verify-voice.yml` (soul-voice contract
+tests, Piper stubbed). `make verify` runs the whole set locally.
 
 ---
 
@@ -290,7 +311,7 @@ soul/
 ├── ARCHITECTURE.md            ← this file
 ├── README.md                  the pitch + quick start
 ├── Makefile                   the entire lifecycle (make help)
-├── docker-compose.yml         the app containers: orchestrator + console (Ollama is host-native)
+├── docker-compose.yml         the app containers: orchestrator + voice + console (Ollama is host-native)
 │
 ├── soul-console/              React + Vite UI (:7787)
 │   ├── src/{api,state,components,voice,theme,lib}/
@@ -301,14 +322,18 @@ soul/
 │   ├── src/main/resources/application.yml
 │   └── Dockerfile             build context = repo root (bakes in the pools)
 │
+├── soul-voice/                neural TTS — FastAPI + Piper (:7789)
+│   ├── app.py                 /api/v1/tts, /api/v1/voices, /health
+│   └── Dockerfile             bakes in the voice models (Amy, Alba)
+│
 ├── soul-scripts/
 │   ├── ollama/{models.yaml,manage.py}   declarative model management
 │   └── pooltest.py                      validate + smoke-test the pools
 │
 ├── skillpool/                 model-chosen tools (echo, current-time, persona)
 ├── hookspool/                 system-enforced hooks (audit-log, block-secrets, inject-time)
-├── .github/workflows/         CI: models, pools, orchestrator
-└── docs/                       design docs (SPEC, TDDs) — local-only, gitignored
+├── .github/workflows/         CI: models, pools, orchestrator, voice
+└── docs/                      design docs (SPEC, TDDs, voice-and-face)
 ```
 
 ---
