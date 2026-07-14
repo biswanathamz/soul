@@ -21,6 +21,15 @@ export function rmsOf(frame: Float32Array): number {
   return Math.sqrt(sum / (frame.length || 1));
 }
 
+export function peakOf(frame: Float32Array): number {
+  let peak = 0;
+  for (let i = 0; i < frame.length; i++) {
+    const a = Math.abs(frame[i]);
+    if (a > peak) peak = a;
+  }
+  return peak;
+}
+
 /** 16-bit mono PCM WAV bytes — what /voice/api/v1/stt expects. */
 export function pcmToWavBytes(pcm: Float32Array, sampleRate: number): ArrayBuffer {
   const buf = new ArrayBuffer(44 + pcm.length * 2);

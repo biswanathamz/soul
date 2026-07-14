@@ -187,6 +187,20 @@ export function SettingsDrawer() {
                 </span>
               </span>
             </label>
+            <label className="mt-1.5 flex cursor-pointer items-center gap-3 rounded-lg border border-line p-2.5 text-sm">
+              <input
+                type="checkbox"
+                className="accent-[color:var(--accent)]"
+                checked={settings.clapWake}
+                onChange={(e) => settings.setClapWake(e.target.checked)}
+              />
+              <span>
+                Triple clap 👏👏👏
+                <span className="block text-xs text-muted">
+                  Clap three times to wake SOUL without speaking (local engine + wake word)
+                </span>
+              </span>
+            </label>
             {soulVoices.length > 0 && (
               <div className="mt-3">
                 <label className="mb-1 block text-xs text-muted" htmlFor="soul-voice">

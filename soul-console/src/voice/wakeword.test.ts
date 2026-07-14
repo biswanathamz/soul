@@ -29,6 +29,8 @@ describe('matchWake', () => {
   it('tolerates common recognizer mishears of "soul"', () => {
     expect(matchWake('hey seoul what is the weather').matched).toBe(true);
     expect(matchWake('hi sole').matched).toBe(true);
+    expect(matchWake('Hey Saul, what time is it?').matched).toBe(true); // whisper loves names
+    expect(matchWake('hey sol').matched).toBe(true);
   });
 
   it('does not fire without the greeting or on lookalike words', () => {

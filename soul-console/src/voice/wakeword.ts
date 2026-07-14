@@ -16,8 +16,8 @@ import { chime } from './chime';
 import { isLocalSttSupported, startLocalWakeRecognition } from './localStt';
 import { isSttSupported, startRecognition, type SttHandle } from './stt';
 
-// 'seoul' / 'sole' are common recognizer mishears of "soul".
-const WAKE_RE = /\b(?:hey|hi)[,!.]?\s+(?:soul|seoul|sole)\b[,!.:;]?\s*/i;
+// 'seoul' / 'sole' / 'saul' / 'sol' are common recognizer mishears of "soul".
+const WAKE_RE = /\b(?:hey|hi)[,!.]?\s+(?:soul|seoul|sole|saul|sol)\b[,!.:;]?\s*/i;
 
 /** Pure matcher: did the transcript wake SOUL, and what was said after the name? */
 export function matchWake(transcript: string): { matched: boolean; remainder: string } {
@@ -74,22 +74,29 @@ function onWake(remainder: string): void {
 
 function startLoop(): void {
   if (bg || !shouldListen()) return;
-  const engineStart = localEngineActive() ? startLocalWakeRecognition : startRecognition;
-  bg = engineStart({
+  const common = {
     continuous: true,
-    onFinal: (text) => {
+    onFinal: (text: string) => {
       const { matched, remainder } = matchWake(text);
       if (matched) onWake(remainder);
     },
-    onError: () => {
-      /* onEnd fires next and schedules the restart */
+    onError: (err: string) => {
+      // Visible at default console level — mic-denied would otherwise fail silently.
+      console.warn('[voice] wake listening error:', err);
     },
     onEnd: () => {
       bg = null;
       setWakeListening(false);
       scheduleRestart(); // sessions end (Chrome timeout / service blip) — keep the ear open
     },
-  });
+  };
+  bg = localEngineActive()
+    ? startLocalWakeRecognition({
+        ...common,
+        // Triple clap 👏👏👏 wakes SOUL too — same flow as saying her name.
+        onClaps: useSettingsStore.getState().clapWake ? () => onWake('') : undefined,
+      })
+    : startRecognition(common);
   setWakeListening(bg !== null);
 }
 
@@ -125,8 +132,13 @@ function sync(): void {
 /** Call once at boot — watches settings + voice state and keeps the loop in sync. */
 export function initWakeWord(): void {
   useSettingsStore.subscribe((s, prev) => {
-    if (s.voiceMode !== prev.voiceMode || s.sttEngine !== prev.sttEngine || s.bargeIn !== prev.bargeIn) {
-      // Engine/mode changed — tear down so the next start uses the right engine.
+    if (
+      s.voiceMode !== prev.voiceMode ||
+      s.sttEngine !== prev.sttEngine ||
+      s.bargeIn !== prev.bargeIn ||
+      s.clapWake !== prev.clapWake
+    ) {
+      // Engine/mode/trigger changed — tear down so the next start picks it up.
       stopLoop();
       sync();
     }

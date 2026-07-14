@@ -175,9 +175,13 @@ times it out (~60 s / on silence).
   and typing remain fully local paths to a local answer.
 - *Phase 4 (implemented) — fully local ears:* `soul-voice` gained `POST /api/v1/stt`
   (faster-whisper, `base.en` int8, baked into the image so it works offline). The console
-  captures mic PCM (16 kHz mono WAV), endpoints utterances with an RMS/VAD state machine
-  (silence-based, ~1.2 s), and transcribes locally. **Local is the default engine**;
-  browser Web Speech remains selectable.
+  captures mic PCM (16 kHz mono WAV; `noiseSuppression` OFF — Chrome's suppressor erases
+  clap transients; echo-cancellation stays on for barge-in), endpoints utterances with an
+  RMS/VAD state machine, and transcribes locally. **The speech gate is adaptive**: it
+  tracks the ambient noise floor (drops fast, drifts up slowly) and triggers at ~3.5×
+  above it, clamped to [0.006, 0.05] — fixed thresholds failed on real mics (Chrome's
+  SpeechRecognition applies gain that raw `getUserMedia` audio doesn't get). **Local is
+  the default engine**; browser Web Speech remains selectable.
   - *Wake word, local:* rather than a WASM keyword engine (no pretrained "hey soul"
     openWakeWord model exists, and Porcupine needs an account key), the local path does
     **VAD-gated utterance spotting through the same whisper endpoint** — short utterances
@@ -186,6 +190,17 @@ times it out (~60 s / on silence).
     if idle-CPU cost ever matters.
   - *Barge-in (implemented):* with the local engine, the ear stays open while SOUL speaks —
     saying "Hey SOUL" silences her and takes the new request. Toggle in Settings (default on).
+  - *Triple-clap wake (implemented):* 👏👏👏 wakes SOUL exactly like her name — a pure-DSP
+    transient detector (`ClapDetector`) on the same PCM stream, everything relative to the
+    tracked noise floor (no absolute thresholds — mic volumes vary wildly). A clap = an
+    energy spike ≥5× floor, impulse-shaped (raw 48 kHz peak ≫ frame RMS — measured before
+    the averaging downsampler smears it), that **decays below 30% of its own spike height**
+    within ~3 frames. That last rule is reverb-aware: real rooms + AGC hold a clap's tail
+    far above the noise floor, so "fell back to silence" was the wrong test (found live).
+    Sustained sound (speech, music) fails the decay test and is discarded. Three claps
+    within ~1.5 s gaps → same flow as the wake word. No whisper call involved, so it also
+    works mid-transcription. Local engine only (the browser engine exposes no PCM).
+    Toggle in Settings (default on).
 
 **Utterance capture:** after wake, existing STT flow (same as mic tap) with silence-based
 end-pointing (~1.2 s), then normal `POST /chat`.

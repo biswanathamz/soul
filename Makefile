@@ -32,8 +32,8 @@ setup: models-deps ollama-install models-sync ## One-time: install Python deps +
 # ---------------------------------------------------------------------------
 
 .PHONY: up
-up: ## Build + start the Manager + UI containers (→ http://localhost:7787). Run 'make setup' once first
-	$(COMPOSE) up -d --build $(STACK)
+up: ## Build + start the app containers (→ http://localhost:7787). Run 'make setup' once first
+	$(COMPOSE) up -d --build --force-recreate $(STACK)
 	@echo "SOUL console → http://localhost:7787  (first time? run 'make setup' to install host Ollama + pull the model)"
 
 .PHONY: down

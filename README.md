@@ -111,7 +111,7 @@ Models live in the host's Ollama store (`~/.ollama`); remove one with `ollama rm
 
 ## Notes
 
-- **Use `make`, not `podman compose` directly.** It uses `podman-compose` (hyphenated), since `podman compose` (spaced) routes to a broken provider on some setups.
+- **Use `make`, not `podman compose` directly.** It uses `podman-compose` (hyphenated), since `podman compose` (spaced) routes to a broken provider on some setups. `make up` also passes `--force-recreate` — podman-compose 1.0.6 rebuilds images but often leaves the old container running without it, so you'd silently keep testing stale code.
 - **Ollama must listen on `0.0.0.0`** for the orchestrator container to reach it via `host.containers.internal` — `make ollama-serve` sets that. Its API is unauthenticated, so keep the box off untrusted networks or firewall port 11434.
 
 ## Docs

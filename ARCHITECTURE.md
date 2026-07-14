@@ -146,7 +146,8 @@ All models are baked into the image, so it works with no internet.
   (Piper, default `en_US-amy-medium`) · `GET /api/v1/voices` · `GET /health`
 - **STT**: `POST /api/v1/stt` (16 kHz mono WAV body) → `{text}` (faster-whisper `base.en`,
   VAD-filtered). The console's default recognition engine — mic audio never leaves the box.
-  Also powers the **local wake word** ("Hey SOUL" spotting) and **barge-in**.
+  Also powers the **local wake word** ("Hey SOUL" spotting), the **triple-clap wake**
+  (👏👏👏 — pure DSP on the mic stream, no transcription), and **barge-in**.
 - Reached same-origin from the browser via the `/voice/*` proxy (Vite in dev, nginx in prod).
 - The console speaks answers **sentence-by-sentence as tokens stream** (splitter + ordered
   audio queue in `soul-console/src/voice/`), falling back to browser `speechSynthesis`

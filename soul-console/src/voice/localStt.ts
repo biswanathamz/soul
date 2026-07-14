@@ -9,7 +9,8 @@
  */
 
 import { isMicSupported, startPcmCapture, STT_SAMPLE_RATE, type PcmCapture } from './audioCapture';
-import { encodeWav } from './pcm';
+import { ClapDetector } from './clap';
+import { encodeWav, rmsOf } from './pcm';
 import type { SttHandle, SttOptions } from './stt';
 import { UtteranceDetector } from './utterance';
 
@@ -88,17 +89,34 @@ export function startLocalRecognition(opts: SttOptions): SttHandle | null {
   };
 }
 
+export interface LocalWakeOptions extends SttOptions {
+  /** Fires on a triple clap 👏👏👏 — pure DSP, no transcription involved. */
+  onClaps?: () => void;
+}
+
 /**
  * Continuous local wake spotting: transcribe each detected utterance and hand
  * it to onFinal (the wake loop runs matchWake over it). Short utterance caps
  * keep the whisper calls tiny; silence sends nothing at all (VAD gate).
+ * The same PCM stream also feeds the clap detector when onClaps is given.
  */
-export function startLocalWakeRecognition(opts: SttOptions): SttHandle | null {
+export function startLocalWakeRecognition(opts: LocalWakeOptions): SttHandle | null {
   if (!isLocalSttSupported()) return null;
   let capture: PcmCapture | null = null;
   let stopped = false;
   let detector = newDetector();
+  const claps = opts.onClaps
+    ? new ClapDetector({
+        sampleRate: STT_SAMPLE_RATE,
+        debug: (m) => console.debug('[voice]', m),
+      })
+    : null;
   let busy = false; // don't stack transcriptions if speech is continuous
+
+  // Diagnostics (browser console, Verbose level): prove frames flow and show
+  // the mic level vs the VAD gate — the two blind spots when "nothing happens".
+  let frames = 0;
+  let maxRms = 0;
 
   function newDetector() {
     return new UtteranceDetector({
@@ -109,14 +127,31 @@ export function startLocalWakeRecognition(opts: SttOptions): SttHandle | null {
     });
   }
 
-  void startPcmCapture((frame) => {
-    if (stopped || busy) return;
+  void startPcmCapture((frame, rawPeak) => {
+    if (stopped) return;
+    // Claps are detected even while a transcription is in flight — they're
+    // instant DSP, independent of whisper.
+    if (claps?.feed(frame, rawPeak)) {
+      console.debug('[voice] wake: triple clap detected');
+      opts.onClaps?.();
+      return;
+    }
+    if (busy) return;
+    if (frames === 0) console.debug('[voice] wake mic live — frames flowing');
+    maxRms = Math.max(maxRms, rmsOf(frame));
+    if (++frames % 60 === 0) {
+      console.debug(
+        `[voice] wake mic level: max rms ${maxRms.toFixed(4)} (adaptive gate ${detector.gate().toFixed(4)})`,
+      );
+      maxRms = 0;
+    }
     const status = detector.feed(frame);
     if (status.state === 'done') {
       detector = newDetector();
       busy = true;
       transcribe(status.audio)
         .then((text) => {
+          if (!stopped) console.debug(`[voice] wake heard: "${text}"`);
           if (!stopped && text) opts.onFinal?.(text);
         })
         .catch(() => {

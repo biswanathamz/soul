@@ -46,9 +46,25 @@ describe('UtteranceDetector', () => {
     expect(doneAt).toBeLessThanOrEqual(51);
   });
 
-  it('brief blips below the start gate do not trigger recording', () => {
+  it('brief blips below the adaptive gate do not trigger recording', () => {
     const d = make();
-    const blip = new Float32Array(FRAME).fill(0.005); // under startRms 0.015
+    const blip = new Float32Array(FRAME).fill(0.005); // becomes the noise floor → gate ≈ 0.0175
     for (let i = 0; i < 50; i++) expect(d.feed(blip).state).toBe('waiting');
+  });
+
+  it('adapts to quiet mics: soft speech over a silent floor still triggers', () => {
+    const d = make();
+    for (let i = 0; i < 20; i++) d.feed(silence()); // floor → ~0, gate falls to the minimum
+    const soft = new Float32Array(FRAME).fill(0.01); // would NOT pass a fixed 0.015 gate
+    expect(d.feed(soft).state).toBe('recording');
+  });
+
+  it('adapts to noisy rooms: the gate rises above the ambient floor', () => {
+    const d = make();
+    const noise = new Float32Array(FRAME).fill(0.02); // constant loud-ish ambience
+    for (let i = 0; i < 30; i++) d.feed(noise);
+    expect(d.gate()).toBeGreaterThan(0.02); // ambience alone can no longer trigger
+    const speech = new Float32Array(FRAME).fill(0.2);
+    expect(d.feed(speech).state).toBe('recording'); // real speech still does
   });
 });
