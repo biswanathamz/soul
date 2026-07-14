@@ -1,8 +1,9 @@
-"""soul-voice — SOUL's local neural TTS microservice (docs/voice-and-face.md §4.1).
+"""soul-voice — SOUL's local speech microservice (docs/voice-and-face.md §4.1, §4.3).
 
-FastAPI wrapper around Piper. Stateless; voices are ONNX models in VOICES_DIR,
-loaded lazily on first use and cached. Synthesis is serialized with a lock —
-Piper sessions aren't thread-safe, and one-at-a-time keeps CPU sane next to Ollama.
+TTS: FastAPI wrapper around Piper. STT: faster-whisper (phase 4 — fully local ears).
+Stateless; models are loaded lazily on first use and cached. Each engine is
+serialized with its own lock — the sessions aren't thread-safe, and
+one-at-a-time keeps CPU sane next to Ollama.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import threading
 import wave
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -94,6 +95,45 @@ def voices() -> list[dict]:
             }
         )
     return out
+
+
+# ---------------------------------------------------------------------------
+# STT — faster-whisper (fully local ears, phase 4)
+# ---------------------------------------------------------------------------
+
+_stt = None
+_stt_lock = threading.Lock()
+
+
+def _load_stt():
+    """Load (and cache) the whisper model. Lazy so tests can stub this out."""
+    global _stt
+    if _stt is None:
+        from faster_whisper import WhisperModel  # heavy import — only when transcribing
+
+        _stt = WhisperModel(
+            os.environ.get("STT_MODEL", "base.en"),
+            device="cpu",
+            compute_type="int8",
+            download_root=os.environ.get("STT_DIR", "stt"),
+        )
+    return _stt
+
+
+@app.post("/api/v1/stt")
+async def stt(request: Request) -> dict:
+    """Transcribe an audio clip (the console posts 16 kHz mono WAV). → {text}."""
+    audio = await request.body()
+    if not audio or len(audio) < 44:  # smaller than a WAV header — nothing to hear
+        raise HTTPException(status_code=400, detail="no audio")
+    model = _load_stt()
+    with _stt_lock:
+        # vad_filter drops non-speech windows — silence and noise come back as "".
+        segments, _info = model.transcribe(
+            io.BytesIO(audio), language="en", beam_size=1, vad_filter=True
+        )
+        text = " ".join(s.text.strip() for s in segments).strip()
+    return {"text": text}
 
 
 @app.post("/api/v1/tts")

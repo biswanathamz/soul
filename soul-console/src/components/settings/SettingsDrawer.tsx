@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { getModels, rebindModel } from '../../api/rest';
 import { useAgentStore } from '../../state/agentStore';
 import { useConnectionStore } from '../../state/connectionStore';
-import { useSettingsStore, type VoiceMode } from '../../state/settingsStore';
+import { useSettingsStore, type SttEngine, type VoiceMode } from '../../state/settingsStore';
 import { useUiStore } from '../../state/uiStore';
 import { useVoiceStore } from '../../state/voiceStore';
 import { listSoulVoices, type VoiceInfo } from '../../voice/speaker';
@@ -23,7 +23,20 @@ const VOICE_MODES: Array<{ value: VoiceMode; label: string; hint: string }> = [
   {
     value: 'handsfree',
     label: 'Wake word — “Hey SOUL”',
-    hint: 'Listens in the background for its name (uses browser speech recognition)',
+    hint: 'Listens in the background for its name',
+  },
+];
+
+const STT_ENGINES: Array<{ value: SttEngine; label: string; hint: string }> = [
+  {
+    value: 'local',
+    label: 'Local (private)',
+    hint: 'Whisper on soul-voice — audio never leaves this machine',
+  },
+  {
+    value: 'browser',
+    label: 'Browser',
+    hint: 'Web Speech API — cloud-backed in Chrome, fastest to respond',
   },
 ];
 
@@ -135,6 +148,45 @@ export function SettingsDrawer() {
                 );
               })}
             </div>
+            <div className="mt-4">
+              <span className="mb-1.5 block text-xs text-muted">Speech recognition</span>
+              <div className="space-y-1.5">
+                {STT_ENGINES.map((e) => (
+                  <label
+                    key={e.value}
+                    className={`flex cursor-pointer items-center gap-3 rounded-lg border p-2.5 text-sm ${
+                      settings.sttEngine === e.value ? 'border-accent-dim bg-surface2' : 'border-line'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="sttEngine"
+                      className="accent-[color:var(--accent)]"
+                      checked={settings.sttEngine === e.value}
+                      onChange={() => settings.setSttEngine(e.value)}
+                    />
+                    <span>
+                      {e.label}
+                      <span className="block text-xs text-muted">{e.hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-lg border border-line p-2.5 text-sm">
+              <input
+                type="checkbox"
+                className="accent-[color:var(--accent)]"
+                checked={settings.bargeIn}
+                onChange={(e) => settings.setBargeIn(e.target.checked)}
+              />
+              <span>
+                Barge-in
+                <span className="block text-xs text-muted">
+                  Say “Hey SOUL” while she's speaking to interrupt (local engine + wake word)
+                </span>
+              </span>
+            </label>
             {soulVoices.length > 0 && (
               <div className="mt-3">
                 <label className="mb-1 block text-xs text-muted" htmlFor="soul-voice">

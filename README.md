@@ -16,7 +16,7 @@ Everything runs locally — no cloud APIs, no data leaving your machine.
 | --- | --- | --- | --- |
 | `soul-console` | React UI (chat + voice, black & yellow theme) | container | `7787` |
 | `soul-orchestrator` | The Manager agent — Spring Boot service, drives the agent loop | container | `7788` |
-| `soul-voice` | Neural TTS (Piper) — SOUL's natural spoken voice | container | `7789` |
+| `soul-voice` | Speech: neural TTS (Piper) + local STT (faster-whisper) | container | `7789` |
 | `soul-scripts/ollama` | Declarative Ollama model management (manifest + `manage.py`) | host script | — |
 | Ollama | Local model runtime — the single source of models | **host-native (GPU)** | `11434` |
 

@@ -1,17 +1,19 @@
 /**
  * Wake word — "Hey SOUL" / "Hi SOUL" (docs/voice-and-face.md §4.3).
  *
- * v1 approach: a continuous Web Speech recognition session runs in the background
- * and transcripts are matched against the wake phrase. Chrome kills such sessions
- * after ~60 s of silence, so the loop auto-restarts. Off by default (browser STT
- * is cloud-backed in Chrome — see the doc's privacy note); Phase 4 replaces this
- * with a local WASM engine.
+ * Two engines, chosen in Settings:
+ * - local (default): VAD-gated utterance spotting via whisper on soul-voice —
+ *   fully private, and supports barge-in (interrupt SOUL while she speaks).
+ * - browser: continuous Web Speech session (cloud-backed in Chrome). Chrome
+ *   kills such sessions after ~60 s of silence, so the loop auto-restarts.
+ * Wake mode stays off by default either way.
  */
 
 import { useChatStore } from '../state/chatStore';
 import { useSettingsStore } from '../state/settingsStore';
 import { useVoiceStore } from '../state/voiceStore';
 import { chime } from './chime';
+import { isLocalSttSupported, startLocalWakeRecognition } from './localStt';
 import { isSttSupported, startRecognition, type SttHandle } from './stt';
 
 // 'seoul' / 'sole' are common recognizer mishears of "soul".
@@ -37,23 +39,32 @@ const setWakeListening = (wakeListening: boolean) => {
   }
 };
 
-/** The loop should run only in wake-word mode, and never while SOUL speaks or captures. */
+/** Local whisper spotting when available (private, phase 4); browser Web Speech otherwise. */
+function localEngineActive(): boolean {
+  return useSettingsStore.getState().sttEngine === 'local' && isLocalSttSupported();
+}
+
+/**
+ * The loop runs only in wake-word mode and never during active capture.
+ * While SOUL speaks it normally pauses — except local engine + barge-in,
+ * where the ear stays open so "Hey SOUL" can interrupt her (§4.3).
+ */
 function shouldListen(): boolean {
   const v = useVoiceStore.getState();
-  return (
-    useSettingsStore.getState().voiceMode === 'handsfree' &&
-    !v.speaking &&
-    v.micState !== 'listening' &&
-    isSttSupported()
-  );
+  const s = useSettingsStore.getState();
+  if (s.voiceMode !== 'handsfree' || v.micState === 'listening') return false;
+  const local = localEngineActive();
+  if (!local && !isSttSupported()) return false;
+  if (v.speaking && !(local && s.bargeIn)) return false;
+  return true;
 }
 
 function onWake(remainder: string): void {
   stopLoop();
+  useVoiceStore.getState().stopSpeaking(); // barge-in: silence SOUL the moment she's named
   chime();
   if (remainder) {
     // "Hey SOUL, what time is it?" — the question came in the same breath.
-    useVoiceStore.getState().stopSpeaking();
     void useChatStore.getState().send(remainder);
   } else {
     // "Hey SOUL" alone — open the mic for the question.
@@ -63,7 +74,8 @@ function onWake(remainder: string): void {
 
 function startLoop(): void {
   if (bg || !shouldListen()) return;
-  bg = startRecognition({
+  const engineStart = localEngineActive() ? startLocalWakeRecognition : startRecognition;
+  bg = engineStart({
     continuous: true,
     onFinal: (text) => {
       const { matched, remainder } = matchWake(text);
@@ -75,7 +87,7 @@ function startLoop(): void {
     onEnd: () => {
       bg = null;
       setWakeListening(false);
-      scheduleRestart(); // Chrome times sessions out — keep the ear open
+      scheduleRestart(); // sessions end (Chrome timeout / service blip) — keep the ear open
     },
   });
   setWakeListening(bg !== null);
@@ -113,7 +125,11 @@ function sync(): void {
 /** Call once at boot — watches settings + voice state and keeps the loop in sync. */
 export function initWakeWord(): void {
   useSettingsStore.subscribe((s, prev) => {
-    if (s.voiceMode !== prev.voiceMode) sync();
+    if (s.voiceMode !== prev.voiceMode || s.sttEngine !== prev.sttEngine || s.bargeIn !== prev.bargeIn) {
+      // Engine/mode changed — tear down so the next start uses the right engine.
+      stopLoop();
+      sync();
+    }
   });
   useVoiceStore.subscribe((s, prev) => {
     if (s.speaking !== prev.speaking || s.micState !== prev.micState) sync();

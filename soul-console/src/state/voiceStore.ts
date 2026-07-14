@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { isSttSupported, startRecognition, type SttHandle } from '../voice/stt';
+import { isLocalSttSupported, startLocalRecognition } from '../voice/localStt';
+import { isSttSupported, startRecognition, type SttHandle, type SttOptions } from '../voice/stt';
 import { cancelSpeech, isTtsSupported, speak as ttsSpeak } from '../voice/tts';
 import { useChatStore } from './chatStore';
 import { useFaceStore, type FaceEvent } from './faceStore';
@@ -34,6 +35,13 @@ export function registerNeuralCancel(fn: () => void): void {
   neuralCancel = fn;
 }
 
+/** Engine picker (§4.3 phase 4): local whisper is the default private path. */
+export function startSttEngine(opts: SttOptions): SttHandle | null {
+  const preferLocal = useSettingsStore.getState().sttEngine === 'local';
+  if (preferLocal && isLocalSttSupported()) return startLocalRecognition(opts);
+  return startRecognition(opts);
+}
+
 export const useVoiceStore = create<VoiceState>((set, get) => ({
   supported: { stt: false, tts: false },
   micState: 'idle',
@@ -42,7 +50,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   wakeListening: false,
 
   init() {
-    set({ supported: { stt: isSttSupported(), tts: isTtsSupported() } });
+    set({ supported: { stt: isSttSupported() || isLocalSttSupported(), tts: isTtsSupported() } });
   },
 
   startListening() {
@@ -51,7 +59,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     get().stopSpeaking();
     // One-shot utterance capture in every mode — silence ends it. Continuous
     // background listening belongs to the wake-word loop (voice/wakeword.ts).
-    const started = startRecognition({
+    const started = startSttEngine({
       continuous: false,
       onInterim: (text) => set({ interim: text }),
       onFinal: (text) => {

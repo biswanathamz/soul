@@ -136,13 +136,17 @@ It binds `0.0.0.0:11434` so the orchestrator *container* can reach it via
 `host.containers.internal`. The orchestrator tolerates Ollama being unreachable at boot,
 surfacing an `error` event rather than crashing.
 
-### 3.3b `soul-voice` — neural TTS  ·  `:7789`  ·  Python (FastAPI + Piper)
+### 3.3b `soul-voice` — speech (TTS + STT)  ·  `:7789`  ·  Python (FastAPI + Piper + faster-whisper)
 
-SOUL's voice (docs/voice-and-face.md). A stateless local TTS service: the console posts
-text, gets back `audio/wav` in a natural female voice (Piper, default `en_US-amy-medium`).
+SOUL's voice *and* ears (docs/voice-and-face.md). A stateless local speech service.
 Runs as a container, **CPU-only by design** — it never competes with Ollama for the GPU.
+All models are baked into the image, so it works with no internet.
 
-- `POST /api/v1/tts` `{text, voice?, speed?}` → WAV · `GET /api/v1/voices` · `GET /health`
+- **TTS**: `POST /api/v1/tts` `{text, voice?, speed?}` → WAV in a natural female voice
+  (Piper, default `en_US-amy-medium`) · `GET /api/v1/voices` · `GET /health`
+- **STT**: `POST /api/v1/stt` (16 kHz mono WAV body) → `{text}` (faster-whisper `base.en`,
+  VAD-filtered). The console's default recognition engine — mic audio never leaves the box.
+  Also powers the **local wake word** ("Hey SOUL" spotting) and **barge-in**.
 - Reached same-origin from the browser via the `/voice/*` proxy (Vite in dev, nginx in prod).
 - The console speaks answers **sentence-by-sentence as tokens stream** (splitter + ordered
   audio queue in `soul-console/src/voice/`), falling back to browser `speechSynthesis`

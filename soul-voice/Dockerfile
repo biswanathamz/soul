@@ -26,10 +26,17 @@ RUN mkdir -p voices && cd voices && \
       curl -fsSL -o "$v.onnx.json" "$base/$v.onnx.json" || exit 1; \
     done
 
+# Bake the whisper STT model too (phase 4: fully local ears — the container
+# must work with no internet). base.en int8 ≈ 145 MB; override with STT_MODEL.
+ARG STT_MODEL=base.en
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('${STT_MODEL}', device='cpu', compute_type='int8', download_root='/app/stt')"
+
 COPY app.py .
 
 ENV VOICES_DIR=/app/voices \
-    DEFAULT_VOICE=en_US-amy-medium
+    DEFAULT_VOICE=en_US-amy-medium \
+    STT_MODEL=${STT_MODEL} \
+    STT_DIR=/app/stt
 
 EXPOSE 7789
 HEALTHCHECK --interval=15s --timeout=3s --retries=5 --start-period=10s \

@@ -171,11 +171,21 @@ times it out (~60 s / on silence).
 
 - *Trade-off, stated honestly:* Chrome's Web Speech API sends audio to Google's recognizer —
   an exception to local-first **on the input side only**, so wake-word mode is **off by
-  default** and clearly labeled in Settings ("uses browser speech recognition"). Push-to-talk
+  default** and the engine choice is labeled in Settings. Push-to-talk
   and typing remain fully local paths to a local answer.
-- *Upgrade path (Phase 4):* in-browser local wake word (openWakeWord/Porcupine WASM) +
-  local STT (`faster-whisper` endpoint on `soul-voice`) — removes the cloud exception and
-  the Chrome dependency entirely.
+- *Phase 4 (implemented) — fully local ears:* `soul-voice` gained `POST /api/v1/stt`
+  (faster-whisper, `base.en` int8, baked into the image so it works offline). The console
+  captures mic PCM (16 kHz mono WAV), endpoints utterances with an RMS/VAD state machine
+  (silence-based, ~1.2 s), and transcribes locally. **Local is the default engine**;
+  browser Web Speech remains selectable.
+  - *Wake word, local:* rather than a WASM keyword engine (no pretrained "hey soul"
+    openWakeWord model exists, and Porcupine needs an account key), the local path does
+    **VAD-gated utterance spotting through the same whisper endpoint** — short utterances
+    (≤4 s) are transcribed and run through the same `matchWake`. One engine, zero cloud,
+    passes the phase-4 exit test. A dedicated WASM keyword engine stays a future option
+    if idle-CPU cost ever matters.
+  - *Barge-in (implemented):* with the local engine, the ear stays open while SOUL speaks —
+    saying "Hey SOUL" silences her and takes the new request. Toggle in Settings (default on).
 
 **Utterance capture:** after wake, existing STT flow (same as mic tap) with silence-based
 end-pointing (~1.2 s), then normal `POST /chat`.
@@ -212,7 +222,7 @@ hook hint when the turn was voice-initiated, so voice replies bias even shorter 
 | **1 — A voice** | `soul-voice` service (Piper, container, proxy) + console playback with sentence-chunked queue + persona rewrite | Ask by text; hear the answer in Amy's voice as it generates |
 | **2 — A face** | `SoulFace` (activity+mood renderer), `faceStore`, chat dock collapse/expand, captions | All six states visibly driven by a real turn incl. an error |
 | **3 — A name** | Wake word (Web Speech spotting) + hands-free loop + mic indicator + chime | Say "Hey SOUL, what time is it?" hands-free; hear the time |
-| **4 — Fully local ears** *(later)* | `faster-whisper` STT on `soul-voice`, WASM wake word, barge-in | Same as 3 with Wi-Fi to Google blocked |
+| **4 — Fully local ears** | `faster-whisper` STT on `soul-voice` (+ local wake spotting via the same endpoint), engine picker, barge-in | Same as 3 with Wi-Fi to Google blocked |
 
 Each phase is independently shippable; 1 and 2 can proceed in parallel.
 

@@ -84,6 +84,48 @@ def test_tts_unknown_voice_is_404(client, monkeypatch, tmp_path):
     assert r.status_code == 404
 
 
+class FakeWhisper:
+    """Mimics faster-whisper: transcribe → (segments generator, info)."""
+
+    def __init__(self, text="What time is it?"):
+        self.text = text
+        self.calls = []
+
+    def transcribe(self, audio, **kwargs):
+        self.calls.append(kwargs)
+        from types import SimpleNamespace
+
+        return iter([SimpleNamespace(text=f" {self.text} ")]), SimpleNamespace()
+
+
+def _tiny_wav() -> bytes:
+    import io as _io
+
+    buf = _io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * 1600)
+    return buf.getvalue()
+
+
+def test_stt_transcribes_wav(client, monkeypatch):
+    fake = FakeWhisper()
+    monkeypatch.setattr(appmod, "_load_stt", lambda: fake)
+    r = client.post("/api/v1/stt", content=_tiny_wav(), headers={"content-type": "audio/wav"})
+    assert r.status_code == 200
+    assert r.json() == {"text": "What time is it?"}
+    # vad_filter keeps noise/silence from becoming hallucinated text.
+    assert fake.calls[0]["vad_filter"] is True
+
+
+def test_stt_rejects_empty_body(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_load_stt", lambda: FakeWhisper())
+    assert client.post("/api/v1/stt", content=b"").status_code == 400
+    assert client.post("/api/v1/stt", content=b"RIFF").status_code == 400
+
+
 def test_voices_lists_models_with_default_flag(client, monkeypatch, tmp_path):
     (tmp_path / "en_US-amy-medium.onnx").touch()
     (tmp_path / "en_GB-alba-medium.onnx").touch()
