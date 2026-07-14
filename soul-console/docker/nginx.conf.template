@@ -39,4 +39,11 @@ server {
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
     }
+
+    # Neural TTS — strip the /voice prefix (trailing slash on proxy_pass does that).
+    location /voice/ {
+        proxy_pass ${VOICE_URL}/;
+        proxy_set_header Host $host;
+        proxy_read_timeout 60s;
+    }
 }

@@ -23,6 +23,22 @@ function VoiceIcon({ off, className }: { off: boolean; className?: string }) {
   );
 }
 
+/** Privacy: visible whenever the microphone is live — including background wake-word listening (§3). */
+function MicLiveBadge() {
+  const capturing = useVoiceStore((s) => s.micState === 'listening');
+  const wakeListening = useVoiceStore((s) => s.wakeListening);
+  if (!capturing && !wakeListening) return null;
+  return (
+    <span
+      className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-accent"
+      title={capturing ? 'Microphone live — capturing your request' : 'Microphone live — waiting for “Hey SOUL”'}
+    >
+      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+      mic
+    </span>
+  );
+}
+
 function ConnectionBadge() {
   const status = useConnectionStore((s) => s.status);
   const styles =
@@ -45,7 +61,6 @@ export function Header() {
   const sttSupported = useVoiceStore((s) => s.supported.stt);
   const ttsSupported = useVoiceStore((s) => s.supported.tts);
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
-  const toggleRail = useUiStore((s) => s.toggleRail);
 
   const voiceAvailable = sttSupported || ttsSupported;
   const voiceOff = voiceMode === 'off';
@@ -58,6 +73,7 @@ export function Header() {
         Supervised Orchestration of Unified LLM-agents
       </span>
       <div className="ml-auto flex items-center gap-2">
+        <MicLiveBadge />
         <ConnectionBadge />
         {voiceAvailable && (
           <button
@@ -73,15 +89,6 @@ export function Header() {
             <VoiceIcon off={voiceOff} className="h-4 w-4" />
           </button>
         )}
-        <button
-          type="button"
-          aria-label="Toggle agent fleet"
-          title="Agent fleet"
-          onClick={toggleRail}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-line font-mono text-xs text-muted transition-colors hover:border-accent-dim hover:text-accent lg:hidden"
-        >
-          ⬡
-        </button>
         <button
           type="button"
           aria-label="Open settings"

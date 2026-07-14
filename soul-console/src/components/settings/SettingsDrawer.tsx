@@ -6,6 +6,7 @@ import { useConnectionStore } from '../../state/connectionStore';
 import { useSettingsStore, type VoiceMode } from '../../state/settingsStore';
 import { useUiStore } from '../../state/uiStore';
 import { useVoiceStore } from '../../state/voiceStore';
+import { listSoulVoices, type VoiceInfo } from '../../voice/speaker';
 import { listVoices } from '../../voice/tts';
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -19,7 +20,11 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 const VOICE_MODES: Array<{ value: VoiceMode; label: string; hint: string }> = [
   { value: 'off', label: 'Off', hint: 'Text chat only' },
   { value: 'ptt', label: 'Push to talk', hint: 'Hold the mic button to speak' },
-  { value: 'handsfree', label: 'Hands-free', hint: 'SOUL listens continuously' },
+  {
+    value: 'handsfree',
+    label: 'Wake word — “Hey SOUL”',
+    hint: 'Listens in the background for its name (uses browser speech recognition)',
+  },
 ];
 
 export function SettingsDrawer() {
@@ -33,6 +38,7 @@ export function SettingsDrawer() {
 
   const [models, setModels] = useState<string[]>([]);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [soulVoices, setSoulVoices] = useState<VoiceInfo[]>([]);
   const [rebindError, setRebindError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,6 +46,9 @@ export function SettingsDrawer() {
     getModels()
       .then((list) => setModels(list.map((m) => m.name)))
       .catch(() => setModels([]));
+    listSoulVoices()
+      .then(setSoulVoices)
+      .catch(() => setSoulVoices([]));
     const refreshVoices = () => setVoices(listVoices());
     refreshVoices();
     window.speechSynthesis?.addEventListener?.('voiceschanged', refreshVoices);
@@ -126,10 +135,30 @@ export function SettingsDrawer() {
                 );
               })}
             </div>
+            {soulVoices.length > 0 && (
+              <div className="mt-3">
+                <label className="mb-1 block text-xs text-muted" htmlFor="soul-voice">
+                  SOUL voice (neural)
+                </label>
+                <select
+                  id="soul-voice"
+                  className="w-full rounded-lg border border-line bg-surface2 p-2 text-sm"
+                  value={settings.soulVoiceId ?? ''}
+                  onChange={(e) => settings.setSoulVoice(e.target.value || null)}
+                >
+                  <option value="">Default ({soulVoices.find((v) => v.default)?.id ?? 'service default'})</option>
+                  {soulVoices.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.id} ({v.lang})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {supported.tts && voices.length > 0 && (
               <div className="mt-3">
                 <label className="mb-1 block text-xs text-muted" htmlFor="tts-voice">
-                  Voice
+                  Fallback (browser) voice
                 </label>
                 <select
                   id="tts-voice"

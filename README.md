@@ -16,12 +16,13 @@ Everything runs locally — no cloud APIs, no data leaving your machine.
 | --- | --- | --- | --- |
 | `soul-console` | React UI (chat + voice, black & yellow theme) | container | `7787` |
 | `soul-orchestrator` | The Manager agent — Spring Boot service, drives the agent loop | container | `7788` |
+| `soul-voice` | Neural TTS (Piper) — SOUL's natural spoken voice | container | `7789` |
 | `soul-scripts/ollama` | Declarative Ollama model management (manifest + `manage.py`) | host script | — |
 | Ollama | Local model runtime — the single source of models | **host-native (GPU)** | `11434` |
 
 The UI talks to the real Spring Boot orchestrator, which runs the Manager agent against local **Ollama** models. Ollama is the one and only model provider — there is no mock backend.
 
-**Topology:** only the orchestrator and the console run in containers. **Ollama runs natively on the host** so it can use the NVIDIA GPU directly (rootless containers can't reach the GPU here without extra toolkit setup). The orchestrator container reaches the host's Ollama via `host.containers.internal:11434`, so Ollama must listen on `0.0.0.0:11434` (not just localhost).
+**Topology:** the orchestrator, the voice service, and the console run in containers. **Ollama runs natively on the host** so it can use the NVIDIA GPU directly (rootless containers can't reach the GPU here without extra toolkit setup). The orchestrator container reaches the host's Ollama via `host.containers.internal:11434`, so Ollama must listen on `0.0.0.0:11434` (not just localhost).
 
 ## Prerequisites
 

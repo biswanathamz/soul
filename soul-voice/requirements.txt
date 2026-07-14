@@ -1,0 +1,4 @@
+# Runtime deps — the container installs these. Piper pulls onnxruntime (CPU).
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+piper-tts>=1.2

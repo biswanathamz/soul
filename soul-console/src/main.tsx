@@ -11,9 +11,11 @@ import './index.css';
 import App from './App';
 import { bootSocket } from './api/socket';
 import { useVoiceStore } from './state/voiceStore';
+import { initWakeWord } from './voice/wakeword';
 
 useVoiceStore.getState().init();
 bootSocket();
+initWakeWord();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
