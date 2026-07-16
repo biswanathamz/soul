@@ -32,6 +32,16 @@ public class Runner {
     private final ObjectMapper mapper = new ObjectMapper();
 
     public RunnerResult run(Path entrypoint, Map<String, Object> request, Duration timeout) {
+        return run(entrypoint, request, timeout, Map.of());
+    }
+
+    /**
+     * As above, with extra environment variables for the child process. This is how
+     * config reaches a skill's connectors — {@code SOUL_SEARCH_PROVIDER} and friends
+     * (docs/researcher-agent.md §4.3) — without the skill parsing SOUL's config itself.
+     */
+    public RunnerResult run(Path entrypoint, Map<String, Object> request, Duration timeout,
+            Map<String, String> env) {
         String requestJson;
         try {
             requestJson = mapper.writeValueAsString(request);
@@ -41,6 +51,7 @@ public class Runner {
 
         ProcessBuilder pb = new ProcessBuilder(entrypoint.toAbsolutePath().toString());
         pb.directory(entrypoint.getParent().toFile());
+        pb.environment().putAll(env);
 
         Process process;
         try {

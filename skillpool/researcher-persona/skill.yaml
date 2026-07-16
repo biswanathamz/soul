@@ -1,0 +1,13 @@
+name: researcher-persona
+description: >
+  The Researcher's working method — gather, verify across independent sources,
+  condense to findings with source URLs, and self-rate confidence. A prompt skill:
+  its text is injected into the model's context rather than executed. Granted only
+  to the researcher; the Manager has its own persona.
+version: 0.1
+type: prompt
+prompt: prompt.md
+always: true                   # the worker's whole job — inject on every task
+permissions:
+  network: false
+  filesystem: none

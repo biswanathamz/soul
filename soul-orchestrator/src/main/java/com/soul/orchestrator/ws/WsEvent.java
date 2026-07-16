@@ -29,6 +29,11 @@ public record WsEvent(String type, String conversationId, String agent, Map<Stri
         return new WsEvent("task.done", conversationId, agent, Map.of("messageId", messageId, "text", text));
     }
 
+    /** One agent handed work to another — the console has understood this since the mock era. */
+    public static WsEvent delegation(String conversationId, String from, String to, String task) {
+        return new WsEvent("delegation", conversationId, from, Map.of("from", from, "to", to, "task", task));
+    }
+
     public static WsEvent error(String conversationId, String agent, String message) {
         return new WsEvent("error", conversationId, agent, Map.of("message", message));
     }

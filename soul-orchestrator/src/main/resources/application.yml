@@ -9,13 +9,38 @@ soul:
     skills: { path: ../skillpool, enabled: true }
     hooks:  { path: ../hookspool, enabled: true, default-timeout-seconds: 5 }
 
+  delegation:                     # generic — applies to any worker (docs/researcher-agent.md §5.1)
+    timeout-seconds: 120          # a timed-out worker is sent a cancel, not just abandoned
+    confidence:
+      retry-below: 0.4            # below this → try again with different sources
+      hedge-below: 0.7            # below this → answer with explicit uncertainty
+      max-retries: 1              # latency honesty: each retry is a full worker loop
+
+  research:                       # researcher-specific knobs (§4.2)
+    max-sources: 4
+    search:                       # the SearchConnector layer (§4.3) — providers are pluggable
+      provider: ${SOUL_SEARCH_PROVIDER:duckduckgo}    # zero-setup default: no key, no account
+      fallbacks: ${SOUL_SEARCH_FALLBACKS:}            # e.g. "searxng,brave" — tried in order
+
   agents:
-    super:                        # the Manager
+    super:                        # the Manager — the only agent the user talks to
       model: llama3.1:8b
       persona: jarvis
       max-steps: 6
       skills: [echo, current-time, persona]
       hooks:  [audit-log, block-secrets, inject-time]
+      # No worker list here: the Manager delegates by capability, never by name.
+
+    researcher:                   # the first worker agent
+      model: llama3.1:8b          # MAY differ per agent; same model = no VRAM swap on 4 GB
+      persona: researcher
+      max-steps: 8
+      description: >-
+        finds current, real-world information on the web: news, prices, releases,
+        weather, scores. Use for anything after your training data.
+      capabilities: [research.search, research.fetch]   # PUBLIC contract → the registry
+      skills: [web-search, fetch-page, researcher-persona, current-time]  # private toolbox
+      hooks:  [audit-log]         # block-secrets joins automatically via always-apply
 
 server:
   port: 7788

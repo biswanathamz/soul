@@ -1,0 +1,30 @@
+name: web-search
+description: >
+  Search the web for current, real-world information and return the top results
+  (title, URL, snippet) from independent sources. Use when a question depends on
+  facts that change — news, prices, releases, weather, scores — or on anything
+  after your training data. Follow up with fetch-page to read a result.
+version: 0.1
+type: script
+entrypoint: run.py
+timeout_seconds: 20            # a search plus a fallback hop
+parameters:                    # JSON-Schema — becomes the model-facing tool schema
+  type: object
+  properties:
+    query:
+      type: string
+      description: "What to search for, as a search engine query"
+    max_results:
+      type: integer
+      description: "How many independent sources to return (default 5, max 10)"
+    exclude_domains:
+      type: array
+      items: { type: string }
+      description: "Domains to skip — use to find genuinely different sources on a retry"
+  required: [query]
+permissions:
+  network: true                # research is the one feature whose purpose is to leave the machine
+  filesystem: none
+example:                       # used by pooltest.py to smoke-run the skill
+  input: { query: "latest Node.js LTS version", max_results: 3 }
+  offline: true                # smoke-test against canned fixtures; pooltest --live hits the net

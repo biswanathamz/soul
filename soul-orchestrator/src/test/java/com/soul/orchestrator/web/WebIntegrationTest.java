@@ -50,14 +50,21 @@ class WebIntegrationTest {
     }
 
     @Test
-    void listsTheManagerAgentWithItsCapabilities() {
+    void listsTheFleetWithTheirCapabilities() {
         AgentDto[] agents = rest.getForObject("/api/v1/agents", AgentDto[].class);
-        assertThat(agents).hasSize(1);
+
+        assertThat(agents).extracting(AgentDto::role).containsExactly("super", "researcher");
+
         AgentDto manager = agents[0];
-        assertThat(manager.role()).isEqualTo("super");
         assertThat(manager.model()).isEqualTo("llama3.1:8b");
         assertThat(manager.skills()).contains("echo", "current-time", "persona");
         assertThat(manager.hooks()).contains("block-secrets");
+
+        AgentDto researcher = agents[1];
+        assertThat(researcher.description()).contains("current, real-world information");
+        assertThat(researcher.skills()).contains("web-search", "fetch-page", "researcher-persona");
+        // block-secrets gates the worker too, though its config never lists it (always-apply).
+        assertThat(researcher.hooks()).contains("audit-log", "block-secrets");
     }
 
     @Test
