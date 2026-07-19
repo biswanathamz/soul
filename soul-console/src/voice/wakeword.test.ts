@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchWake } from './wakeword';
+import { isStopPhrase, matchWake } from './wakeword';
 
 describe('matchWake', () => {
   it('matches "hey soul" and "hi soul" with nothing after', () => {
@@ -40,5 +40,25 @@ describe('matchWake', () => {
     expect(matchWake('please console yourself').matched).toBe(false);
     expect(matchWake('hey soulmate').matched).toBe(false);
     expect(matchWake('the whole soul thing').matched).toBe(false);
+  });
+});
+
+describe('isStopPhrase', () => {
+  it('hears the ways people actually call SOUL off', () => {
+    expect(isStopPhrase('stop')).toBe(true);
+    expect(isStopPhrase('Stop.')).toBe(true);
+    expect(isStopPhrase('stop it')).toBe(true);
+    expect(isStopPhrase('cancel')).toBe(true);
+    expect(isStopPhrase('never mind')).toBe(true);
+    expect(isStopPhrase('  abort ')).toBe(true);
+  });
+
+  it('needs the whole utterance — "stop" inside a sentence is just a word', () => {
+    // The mic is open mid-research; cancelling on any overheard "stop" would be awful.
+    expect(isStopPhrase("don't stop")).toBe(false);
+    expect(isStopPhrase('stop the count')).toBe(false);
+    expect(isStopPhrase('when does the bus stop running')).toBe(false);
+    expect(isStopPhrase('what time does the shop stop')).toBe(false);
+    expect(isStopPhrase('cancel my subscription')).toBe(false);
   });
 });

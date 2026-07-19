@@ -82,9 +82,16 @@ public class DelegateTool {
     /** Generated from the registry, grouped by provider — never hand-maintained. */
     private String description() {
         StringBuilder sb = new StringBuilder(
-                "Hand a task to a specialist agent and wait for its result. Use this whenever a "
-                + "question depends on facts you cannot know: anything current, recent, or "
-                + "real-world. Pick the capability that matches the need:\n");
+                "Hand a task to a specialist agent and wait for its result.\n\n"
+                + "USE IT when the answer depends on something you cannot know from training: "
+                + "today's facts, current versions, prices, news, weather, scores, or anything "
+                + "that may have changed. If you are about to state a fact that could be out of "
+                + "date, delegate instead.\n"
+                + "DO NOT USE IT for anything you can already do: arithmetic, definitions, "
+                + "grammar, writing, code, reasoning, or facts that do not change. Delegating "
+                + "costs the user around a minute of waiting, so \"what is 2+2\" or \"write me a "
+                + "haiku\" must be answered directly, right now.\n\n"
+                + "Pick the capability that matches the need:\n");
         for (AgentDescriptor agent : registry.available()) {
             Set<String> owned = capabilitiesOf(agent);
             if (owned.isEmpty()) {
@@ -169,8 +176,25 @@ public class DelegateTool {
             payload.put("excludeDomains", excludeDomains);
         }
         AgentCommand command = AgentCommand.task(MANAGER, agent.name(), conversationId, payload);
-        events.emit(WsEvent.delegation(conversationId, MANAGER, agent.name(), task));
-        return pending.dispatchAndAwait(command, timeout);
+        String id = command.id().toString();
+        events.emit(WsEvent.delegation(conversationId, MANAGER, agent.name(), task, id, attempt));
+
+        AgentEvent outcome = pending.dispatchAndAwait(command, timeout);
+
+        // Publish the evidence, not just the verdict: the UI shows the user the confidence
+        // and the sources so they can judge the answer for themselves.
+        TaskResult result = AgentEvent.COMPLETED.equals(outcome.type()) ? outcome.result() : null;
+        events.emit(WsEvent.delegationResult(conversationId, agent.name(), id,
+                statusOf(outcome), result == null ? null : result.confidence(),
+                result == null ? null : sourcesOf(result)));
+        return outcome;
+    }
+
+    /** The lifecycle event type as the wire's short status: task.completed → "completed". */
+    private static String statusOf(AgentEvent outcome) {
+        String type = outcome.type();
+        int dot = type.indexOf('.');
+        return dot < 0 ? type : type.substring(dot + 1);
     }
 
     /** What the model actually receives back — the number is policy, the wording is guidance. */
@@ -198,10 +222,26 @@ public class DelegateTool {
                     + " — hedge accordingly: give the answer, but make clear it could not be fully "
                     + "verified)\n\n" + findings;
         }
-        return "(LOW confidence " + percent(confidence) + " after " + attempts + " attempt"
-                + (attempts == 1 ? "" : "s") + ", " + sourceCount(result)
-                + " — do NOT present this as fact. Tell the user honestly what you could not "
-                + "verify, and say what little was found, if anything)\n\n" + findings;
+
+        // The findings are WITHHELD, not merely disclaimed. Told "(LOW confidence 20% — do
+        // NOT present this as fact)" and then handed the findings anyway, llama3.1:8b read
+        // past the warning and stated a fabricated Node version as fact (§9). A model
+        // cannot parrot evidence it was never given, so below the retry threshold it isn't
+        // given any — the only thing left to say is the truth.
+        log.info("withholding {} findings from the Manager: confidence {} after {} attempt(s)",
+                agent(outcome), confidence, attempts);
+        return "The research FAILED to establish this: confidence " + percent(confidence)
+                + " after " + attempts + " attempt" + (attempts == 1 ? "" : "s") + ", with "
+                + sourceCount(result) + " verified. The findings were too weak to repeat and have "
+                + "been withheld from you deliberately.\n\n"
+                + "Tell the user plainly that you could not find a reliable answer, and that you "
+                + "would rather say so than guess. State NO version, number, date, name or fact "
+                + "in your reply — not from the research, and not from your own memory, which is "
+                + "out of date for exactly this kind of question. Offer to try again if they like.";
+    }
+
+    private static String agent(AgentEvent outcome) {
+        return outcome.agent() == null ? "worker" : outcome.agent();
     }
 
     @SuppressWarnings("unchecked")

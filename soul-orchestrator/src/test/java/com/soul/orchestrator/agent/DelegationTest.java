@@ -1,6 +1,7 @@
 package com.soul.orchestrator.agent;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.LIST;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 import com.soul.orchestrator.config.SoulProperties;
@@ -192,6 +193,50 @@ class DelegationTest {
         };
     }
 
+    /** Searches, then tries to report straight from the snippets — the real 8B behaviour. */
+    private static OllamaClient researcherThatSkipsReading() {
+        return new OllamaClient() {
+            @Override
+            public ChatTurn chat(String m, List<ChatMessage> messages, List<ToolSpec> tools, Consumer<String> onToken) {
+                List<String> results = toolResults(messages);
+                boolean toldOff = messages.stream().anyMatch(msg -> "user".equals(msg.role())
+                        && msg.content() != null && msg.content().contains("not opened a single one"));
+                if (results.isEmpty()) {
+                    return new ChatTurn("", List.of(new ToolCall("web-search",
+                            Map.of("query", "latest Node.js LTS version"))));
+                }
+                if (!toldOff) {
+                    return new ChatTurn(findings(0.9), List.of()); // lazy: snippets are enough, surely
+                }
+                if (results.size() == 1) {
+                    return new ChatTurn("", List.of(
+                            new ToolCall("fetch-page", Map.of("url", "https://nodejs.org/en/about/previous-releases")),
+                            new ToolCall("fetch-page", Map.of("url", "https://endoflife.date/nodejs"))));
+                }
+                return new ChatTurn(findings(0.9), List.of());
+            }
+
+            @Override
+            public List<String> listModels() {
+                return List.of();
+            }
+        };
+    }
+
+    private static String findings(double rating) {
+        return """
+                FINDINGS:
+                Node.js 22 'Jod' is the current LTS (https://nodejs.org/en/about/previous-releases).
+
+                SOURCES:
+                - Node.js — https://nodejs.org/en/about/previous-releases
+                - endoflife.date — https://endoflife.date/nodejs
+
+                AGREEMENT: both sources agree.
+                CONFIDENCE: %s
+                """.formatted(rating);
+    }
+
     private static List<String> toolResults(List<ChatMessage> messages) {
         return messages.stream().filter(msg -> "tool".equals(msg.role())).map(ChatMessage::content).toList();
     }
@@ -267,6 +312,65 @@ class DelegationTest {
     }
 
     @Test
+    void theUiIsToldWhatTheAnswerRestsOnSoTheUserCanJudgeIt() {
+        ManagerAgent manager = wire(managerThatDelegates("research.search"), researcherRating(0.9));
+        store.append(CONV, "user", "latest node lts?");
+
+        manager.handle(CONV, "msg-1", "latest node lts?");
+
+        String id = (String) ws("delegation").get(0).payload().get("id");
+        assertThat(ws("delegation").get(0).payload()).containsEntry("attempt", 1);
+
+        assertThat(ws("delegation.result")).singleElement().satisfies(e -> {
+            // Paired with its delegation by the command id — not by "the most recent one".
+            assertThat(e.payload()).containsEntry("id", id).containsEntry("status", "completed");
+            assertThat(e.payload()).containsEntry("confidence", 0.9);
+            assertThat(e.payload().get("sources")).asInstanceOf(LIST).hasSize(2);
+            assertThat(e.agent()).isEqualTo("researcher");
+        });
+    }
+
+    @Test
+    void aStoppedDelegationReportsNoConfidenceRatherThanZero() throws Exception {
+        // "Cancelled" and "certain it's nothing" are different things; the UI must not
+        // render a stopped delegation as a 0% confident answer.
+        CountDownLatch reached = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ManagerAgent manager = wire(managerThatDelegates("research.search"),
+                researcherRating(0.9, 0.9, reached, release));
+        store.append(CONV, "user", "latest node lts?");
+
+        Thread turn = new Thread(() -> manager.handle(CONV, "msg-1", "latest node lts?"));
+        turn.start();
+        assertThat(reached.await(5, SECONDS)).isTrue();
+        pending.cancelConversation(CONV);
+        release.countDown();
+        turn.join(10_000);
+
+        assertThat(ws("delegation.result")).singleElement().satisfies(e -> {
+            assertThat(e.payload()).containsEntry("status", "cancelled");
+            assertThat(e.payload()).doesNotContainKey("confidence").doesNotContainKey("sources");
+        });
+    }
+
+    @Test
+    void aRetryIsVisibleAsASecondAttempt() {
+        ManagerAgent manager = wire(managerThatDelegates("research.search"),
+                researcherRating(0.1, 0.9, new CountDownLatch(0), new CountDownLatch(0)));
+        store.append(CONV, "user", "latest node lts?");
+
+        manager.handle(CONV, "msg-1", "latest node lts?");
+
+        assertThat(ws("delegation")).extracting(e -> e.payload().get("attempt")).containsExactly(1, 2);
+        // Each attempt gets its own id, so the UI can pair each with its own result.
+        assertThat(ws("delegation")).extracting(e -> e.payload().get("id")).doesNotHaveDuplicates();
+        // The first attempt rated itself badly (its sources were read, so no cap applied);
+        // the policy retried, and the UI sees both results.
+        assertThat(ws("delegation.result")).extracting(e -> e.payload().get("confidence"))
+                .containsExactly(0.1, 0.9);
+    }
+
+    @Test
     void aWellSourcedResultIsPassedThroughWithItsConfidence() {
         ManagerAgent manager = wire(managerThatDelegates("research.search"), researcherRating(0.9));
         store.append(CONV, "user", "latest node lts?");
@@ -303,8 +407,98 @@ class DelegationTest {
         assertThat(protocol).filteredOn(e -> e.type().equals(AgentEvent.COMPLETED))
                 .allSatisfy(e -> assertThat(e.result().confidence()).isEqualTo(0.2));
         assertThat((String) ws("task.done").get(0).payload().get("text"))
-                .contains("LOW confidence 20%")
-                .contains("do NOT present this as fact");
+                .contains("FAILED to establish")
+                .contains("State NO version, number, date, name or fact");
+    }
+
+    @Test
+    void lowConfidenceFindingsAreWithheldFromTheManagerNotJustDisclaimed() {
+        // The measured failure (§9): told "(LOW confidence — do NOT present this as fact)"
+        // and handed the findings anyway, llama3.1:8b read past the warning and stated a
+        // fabricated Node version. It cannot parrot what it never receives.
+        OllamaClient lazy = new OllamaClient() {
+            @Override
+            public ChatTurn chat(String m, List<ChatMessage> messages, List<ToolSpec> t, Consumer<String> onToken) {
+                return new ChatTurn("FINDINGS: Node.js 24.16 'Fabricated' is the LTS.\nCONFIDENCE: 0.99",
+                        List.of());
+            }
+
+            @Override
+            public List<String> listModels() {
+                return List.of();
+            }
+        };
+        ManagerAgent manager = wire(managerThatDelegates("research.search"), lazy);
+        store.append(CONV, "user", "latest node lts?");
+
+        manager.handle(CONV, "msg-1", "latest node lts?");
+
+        // managerThatDelegates echoes its tool result verbatim into the answer, so this
+        // asserts the findings never entered the Manager's context at all.
+        String answer = (String) ws("task.done").get(0).payload().get("text");
+        assertThat(answer).doesNotContain("24.16").doesNotContain("Fabricated");
+        assertThat(answer).contains("withheld from you deliberately");
+    }
+
+    @Test
+    void aResearcherThatStopsAfterOneSourceIsSentBackForAsecond() {
+        // Live, this is where "Node.js v16.x … v25 will be the latest LTS" came from: one
+        // end-of-life table, read once, with nothing to check it against (§9).
+        OllamaClient onePage = new OllamaClient() {
+            @Override
+            public ChatTurn chat(String m, List<ChatMessage> messages, List<ToolSpec> tools, Consumer<String> onToken) {
+                List<String> results = toolResults(messages);
+                boolean toldOff = messages.stream().anyMatch(msg -> "user".equals(msg.role())
+                        && msg.content() != null && msg.content().contains("read one page"));
+                if (results.isEmpty()) {
+                    return new ChatTurn("", List.of(new ToolCall("web-search", Map.of("query", "node lts"))));
+                }
+                if (results.size() == 1) {
+                    return new ChatTurn("", List.of(new ToolCall("fetch-page",
+                            Map.of("url", "https://nodejs.org/en/about/previous-releases"))));
+                }
+                if (toldOff && results.size() == 2) {
+                    return new ChatTurn("", List.of(new ToolCall("fetch-page",
+                            Map.of("url", "https://endoflife.date/nodejs"))));
+                }
+                return new ChatTurn(findings(0.9), List.of());
+            }
+
+            @Override
+            public List<String> listModels() {
+                return List.of();
+            }
+        };
+        ManagerAgent manager = wire(managerThatDelegates("research.search"), onePage);
+        store.append(CONV, "user", "latest node lts?");
+
+        manager.handle(CONV, "msg-1", "latest node lts?");
+
+        assertThat(ws("tool.call")).filteredOn(e -> "fetch-page".equals(e.payload().get("tool"))).hasSize(2);
+        AgentEvent completed = protocol.stream().filter(e -> e.type().equals(AgentEvent.COMPLETED))
+                .findFirst().orElseThrow();
+        // Two independent sources → the cap lifts to 1.0, so its 0.9 stands, unhedged.
+        assertThat(completed.result().confidence()).isEqualTo(0.9);
+        assertThat(completed.result().data()).extracting("sources").asList().hasSize(2);
+    }
+
+    @Test
+    void aResearcherThatReportsFromSnippetsIsSentBackToActuallyReadSomething() {
+        ManagerAgent manager = wire(managerThatDelegates("research.search"), researcherThatSkipsReading());
+        store.append(CONV, "user", "latest node lts?");
+
+        manager.handle(CONV, "msg-1", "latest node lts?");
+
+        // It tried to report on snippets; the loop insisted; it read two pages.
+        assertThat(ws("tool.call")).extracting(e -> e.payload().get("tool"))
+                .containsExactly("delegate", "web-search", "fetch-page", "fetch-page");
+        assertThat(stages()).containsExactly("searching", "found", "reading", "reading", "summarizing");
+
+        AgentEvent completed = protocol.stream().filter(e -> e.type().equals(AgentEvent.COMPLETED))
+                .findFirst().orElseThrow();
+        // Two real sources → no cap → its own rating stands, and no retry was needed.
+        assertThat(completed.result().confidence()).isEqualTo(0.9);
+        assertThat(ws("delegation")).hasSize(1);
     }
 
     @Test

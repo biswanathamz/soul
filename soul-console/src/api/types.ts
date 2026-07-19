@@ -30,6 +30,22 @@ export interface Message {
   role: 'user' | 'assistant';
   text: string;
   createdAt: string;
+  /**
+   * The delegations that produced this answer, attached client-side as the turn ends —
+   * this is what renders the "→ researcher: …" lines and the sources block. REST never
+   * sends it, so a rehydrate after reconnect drops it (the answer text survives).
+   */
+  delegations?: DelegationRecord[];
+}
+
+/** A delegation as it appears attached to an answer. */
+export interface DelegationRecord {
+  to: Role;
+  task: string;
+  attempt: number;
+  status?: DelegationResultPayload['status'];
+  confidence?: number;
+  sources?: Source[];
 }
 
 export interface ConversationDto {
@@ -47,6 +63,7 @@ export type WsEventType =
   | 'token'
   | 'agent.status'
   | 'delegation'
+  | 'delegation.result'
   | 'tool.call'
   | 'tool.result'
   | 'task.done'
@@ -69,11 +86,29 @@ export interface AgentStatusPayload {
   task?: string | null;
 }
 
+/** One agent handed work to another (docs/researcher-agent.md §6). */
 export interface DelegationPayload {
+  /** The command id — correlates this delegation with its result. */
   id: string;
   from: Role;
   to: Role;
-  instruction: string;
+  task: string;
+  /** 1, or 2 when the confidence policy is double-checking against other sources (§5.1). */
+  attempt: number;
+}
+
+export interface Source {
+  title: string;
+  url: string;
+}
+
+/** How a delegation ended — what lets the answer show its evidence (§7.4). */
+export interface DelegationResultPayload {
+  id: string;
+  status: 'completed' | 'failed' | 'cancelled';
+  /** 0–1, evidence-capped by the worker. Absent unless completed. */
+  confidence?: number;
+  sources?: Source[];
 }
 
 export interface ToolCallPayload {

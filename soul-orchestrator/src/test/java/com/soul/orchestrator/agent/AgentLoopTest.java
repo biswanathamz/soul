@@ -205,6 +205,40 @@ class AgentLoopTest {
     }
 
     @Test
+    void theAnswerGateCanSendTheModelBackForAnotherGo() {
+        ScriptedOllama ollama = new ScriptedOllama(List.of(),
+                new ChatTurn("a lazy answer", List.of()),
+                new ChatTurn("a better answer", List.of()));
+        List<String> vetted = new ArrayList<>();
+
+        LoopOutcome outcome = loopWith(ollama).run(spec()
+                .answerGate((answer) -> {
+                    vetted.add(answer);
+                    return answer.contains("lazy") ? "Try harder." : null;
+                })
+                .build());
+
+        assertThat(vetted).containsExactly("a lazy answer", "a better answer");
+        assertThat(outcome.text()).isEqualTo("a better answer");
+    }
+
+    @Test
+    void aGateTheModelCannotSatisfyCostsOneStepNotTheWholeBudget() {
+        // The Researcher's gate insists it reads a page. If it simply won't, the run must
+        // still end with an answer (the evidence cap then pins its confidence anyway) —
+        // not spin until max-steps.
+        ScriptedOllama ollama = new ScriptedOllama(List.of(),
+                new ChatTurn("no", List.of()),
+                new ChatTurn("still no", List.of()));
+
+        LoopOutcome outcome = loopWith(ollama).run(spec().answerGate((answer) -> "read something").build());
+
+        assertThat(outcome.status()).isEqualTo(LoopOutcome.Status.ANSWERED);
+        assertThat(outcome.text()).isEqualTo("still no"); // accepted on the second pass
+        assertThat(ollama.calls).hasValue(2);
+    }
+
+    @Test
     void anUnreachableModelFailsWithItsReason() {
         OllamaClient down = new OllamaClient() {
             @Override

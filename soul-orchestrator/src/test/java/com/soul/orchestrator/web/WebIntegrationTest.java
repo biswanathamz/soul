@@ -50,6 +50,16 @@ class WebIntegrationTest {
     }
 
     @Test
+    void stopIsAlwaysAcceptedEvenWithNothingToStop() {
+        // The stop button races the answer landing by nature; a 404 here would surface as
+        // an error banner for doing nothing wrong. Cancellation is cooperative, so the
+        // outcome arrives on the stream, never in this response (§3.5).
+        ResponseEntity<Void> res =
+                rest.postForEntity("/api/v1/conversations/never-existed/cancel", null, Void.class);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+    }
+
+    @Test
     void listsTheFleetWithTheirCapabilities() {
         AgentDto[] agents = rest.getForObject("/api/v1/agents", AgentDto[].class);
 

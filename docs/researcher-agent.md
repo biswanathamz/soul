@@ -436,9 +436,19 @@ and tool events were built in the mock era; this feature finally feeds them real
 
 | Event | Payload | Emitted when |
 | --- | --- | --- |
-| `delegation` *(new factory in orchestrator `WsEvent`)* | `{from, to, task}` | Manager issues a task command |
+| `delegation` *(new factory in orchestrator `WsEvent`)* | `{id, from, to, task, attempt}` | Manager issues a task command |
+| `delegation.result` *(new)* | `{id, status, confidence?, sources?}` | that delegation reaches a terminal event |
 | `agent.status` | `{status, task: <progress label>}` with `agent: researcher` | started / each progress stage (§3.2c) / terminal |
 | `tool.call` / `tool.result` | with `agent: researcher` | each search/fetch |
+
+> **Two amendments the console forced.** The mock-era `delegation` payload was
+> `{id, from, to, instruction}`; `instruction` became `task` (the spec's name), but `id`
+> stayed and is now the **command id** — so the console pairs a delegation with its
+> result, and tells attempt 1 from the retry, instead of guessing "the most recent one".
+> And `delegation.result` is new: §7.4's sources block needs the confidence and the
+> sources to reach the console, and nothing else carried them. `status` omits the
+> `task.` prefix; `confidence`/`sources` are absent unless the delegation completed —
+> "stopped" and "certain it's nothing" must not render alike.
 
 Plus one new REST route: `POST /api/v1/conversations/{id}/cancel` → cancels the
 conversation's active delegation (§3.5). Returns 202; the outcome arrives on the
@@ -462,8 +472,16 @@ Baseline is the face-first layout (voice-and-face.md):
    ("→ researcher: latest Node.js LTS version"); a confidence retry appends a second
    line ("→ researcher (double-checking, other sources)") — visible diligence.
 4. **Sources block** — the answer carries an expandable sources list including the
-   confidence ("94% · 3 sources") so the user can judge for themselves.
-5. `agentStore` needs no schema change; `faceStore` none either.
+   confidence ("94% · 3 sources") so the user can judge for themselves. It cites the
+   **last** attempt's sources: a retried-away first attempt is not what the answer rests on.
+5. ~~`agentStore` needs no schema change; `faceStore` none either.~~ **Both needed one:**
+   - `agentStore` gained the delegation *result* (id-correlated) and a `turn` list, drained
+     onto the answer as it lands — that is what attaches sources to the right message.
+   - `faceStore` had a **bug** this feature exposed: `agent.status{idle}` cleared
+     `thinking` outright, so the Researcher finishing dropped the face to "Waiting — ask me
+     anything" while the Manager was still composing. The face now tracks *who* is busy and
+     stays thinking until the last agent stops. A worker's bare "started" (no label) also
+     no longer stomps the caption already showing.
 
 ## 8. Testing
 
@@ -500,8 +518,78 @@ Baseline is the face-first layout (voice-and-face.md):
 | **1 — Protocol** | `protocol/` package: AgentCommand (`task` + `cancel`) / AgentEvent (5-type lifecycle), both buses, **capability-indexed AgentRegistry**, pending-delegation await, **cancellation + timeout-cancels**, unit tests | Bus + registry + cancel tests green; no behavior change |
 | **2 — Loop extraction** | `AgentLoop` factored out of `ManagerAgent`, **with cooperative cancellation checks at step boundaries**; all 32+ existing orchestrator tests still green | Pure refactor, proven by existing suite |
 | **3 — Researcher** | `web-search` (**SearchConnector layer**, DDG default + fallback chain) + `fetch-page` + persona skills; `ResearcherWorker` (capabilities, staged progress §3.2c, evidence-capped confidence); generic `delegate` tool + **confidence policy** (§5.1); WS `delegation` factory; cancel REST route | Stub-LLM delegation test passes end-to-end incl. retry-on-low-confidence, the full progress sequence, and mid-task cancel; unsupported capability returns a clean tool error |
-| **4 — UI** | Delegation strip (live stage labels + ⏹ stop) + dock lines + caption; voice "stop" | Ask a "latest X?" question; watch stages tick by, hit stop mid-research and see it wind down; Manager summarizes with sources |
-| **5 — Live polish** | Real-model prompt tuning (when to delegate / when not), timeout + **confidence-threshold tuning** on real hardware | "What's the latest Node LTS?" answered correctly with sources; "What is 2+2?" does NOT delegate; a garbage query ("flurbo exchange rate") produces an honest low-confidence answer, not a hallucination |
+| **4 — UI** ✅ | Delegation strip (live stage labels + ⏹ stop) + dock lines + sources block + caption; voice "stop" (bare "stop" works — you shouldn't have to say her name to call her off) | Ask a "latest X?" question; watch stages tick by, hit stop mid-research and see it wind down; Manager summarizes with sources |
+| **5 — Live polish** ✅ | Answer-gate + withheld findings + delegate description + timeout tuning; fixed a concurrent-WS-send bug. **Exit test passes — see below.** | "What's the latest Node LTS?" answered correctly with sources; "What is 2+2?" does NOT delegate; a garbage query ("flurbo exchange rate") produces an honest low-confidence answer, not a hallucination |
+
+### What the first live run (llama3.1:8b, 4 GB) actually did
+
+Phase 4's exit test was driven against a real model. The **orchestration worked**: the
+Manager delegated by capability, the strip ticked *Searching the web… → Found 6 sources*,
+the retry fired and rendered, the answer came back in ~40 s. Two real failures, both
+model-behaviour rather than plumbing, both for phase 5:
+
+1. **The Researcher never calls `fetch-page`.** It runs `web-search`, then writes findings
+   straight from the snippets. So it reads 0 pages — and the evidence cap did exactly its
+   job, refusing to certify snippet-deep findings and pinning confidence at 0.2. The
+   machinery is right; the model isn't following the persona's "a snippet is not
+   evidence" step. Fix in prompt (and consider: is `web-search` returning snippets rich
+   enough that the model *thinks* it's done?).
+2. **The Manager presented a low-confidence result as fact.** Handed a tool result reading
+   *"(LOW confidence 20% after 2 attempts, 0 sources — do NOT present this as fact…)"* it
+   still answered *"The current latest LTS version of Node.js is Node.js 24.16 LTS"* — a
+   version that does not exist. This is the anti-hallucination exit test failing outright.
+   An 8B model will not reliably obey an instruction buried in a tool result; the hedge
+   likely has to move out of the payload's prose and into something structural (a
+   `before_respond` gate that can veto an unhedged answer after a low-confidence
+   delegation, or a forced hedge prefix the model cannot drop).
+
+The lesson is worth keeping: **the deterministic half of the design held, the model half
+did not.** Confidence, evidence caps and the retry policy all behaved; every failure was
+the 8B model declining to follow prose. Design accordingly — put the guarantees in code.
+
+### What phase 5 changed, and how the exit test came out
+
+Both failures were fixed by moving the guarantee out of prose and into code:
+
+- **`AnswerGate`** (loop extension point) — a non-streaming agent's final answer can be
+  vetoed and the model sent back **once** (once only: a gate it can't satisfy costs one
+  step, not the budget). The Researcher's gate refuses an answer written before it has
+  read a source. Streaming agents can't use it — by the time a gate sees the answer the
+  Manager has already spoken it — which is why the Manager's guarantee is the next one.
+- **Low-confidence findings are withheld, not disclaimed.** Below the retry threshold the
+  delegate tool hands the Manager *no findings at all*, only the instruction to admit it
+  couldn't find out and state no fact. A model cannot parrot evidence it never receives.
+- **Delegate tool description now says when NOT to delegate** (arithmetic, timeless facts),
+  with the latency called out — so "2+2" is answered directly.
+- **Timeout 120 s → 240 s.** Measured: a full gated research loop is ~150 s on the 4 GB
+  box (every model call is 20–40 s). 120 s guillotined good research mid-compose.
+
+Exit test, driven through the real console against llama3.1:8b, one fresh conversation
+each:
+
+| Prompt | Required | Result |
+| --- | --- | --- |
+| "latest Node LTS?" | delegates, cites, correct | **"24.11.0"**, cited, hedged "60% · 1 source" ✅ |
+| "What is 2+2?" | does NOT delegate | **"4"**, 0 delegations, 7 s ✅ |
+| "flurbo→zorkmid rate?" | honest, not invented | **"couldn't find a clear answer"** ✅ |
+
+All three pass. The recency answer is correct where it was a fabrication before — hedged
+rather than confident, because the once-only gate gets it from 0 sources to 1, and the
+1→2 escalation only fires if the model reports after one *un-nudged* read. That is the
+accepted trade-off: the once-only bound on latency matters more than a guaranteed second
+read, and a correct-but-hedged answer beats a confident wrong one.
+
+### One real bug this feature introduced — concurrent WebSocket sends
+
+The first two-agent live run died with `IllegalStateException: remote endpoint was in
+state [TEXT_PARTIAL_WRITING]`. Until now exactly one thread ever emitted to the socket;
+now the Manager streams tokens from its thread while a worker narrates progress from its
+executor, and `WebSocketSession.sendMessage` is **not** safe for concurrent use — the two
+interleaved mid-frame. Worse, the exception escaped `emit()` and killed the Manager's
+turn. Fixed with `ConcurrentWebSocketSessionDecorator` (serializes sends, buffers a slow
+client) and by making `emit()` swallow all send failures — a browser that went away must
+never take an agent's turn down with it. A regression test drives two threads emitting at
+once and fails without the decorator.
 
 ## 10. Open questions
 

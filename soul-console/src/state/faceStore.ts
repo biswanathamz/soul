@@ -15,7 +15,7 @@ export type FaceMood = 'neutral' | 'pleased' | 'concerned';
 export type FaceEvent =
   | { type: 'stt.start' }
   | { type: 'stt.stop' }
-  | { type: 'agent.status'; status: string; task?: string | null }
+  | { type: 'agent.status'; agent: string; status: string; task?: string | null }
   | { type: 'speech.start' }
   | { type: 'speech.sentence'; text: string }
   | { type: 'speech.end' }
@@ -31,6 +31,11 @@ export interface FaceState {
   offline: boolean;
   mood: FaceMood;
   caption: string;
+  /**
+   * Who is currently busy. SOUL is thinking while ANY agent is — the Researcher going
+   * idle must not clear the face while the Manager is still composing the answer.
+   */
+  busy: string[];
 }
 
 export const initialFace: FaceState = {
@@ -40,6 +45,7 @@ export const initialFace: FaceState = {
   offline: false,
   mood: 'neutral',
   caption: '',
+  busy: [],
 };
 
 export function activityOf(s: FaceState): FaceActivity {
@@ -59,12 +65,25 @@ export function reduceFace(s: FaceState, e: FaceEvent): FaceState {
     case 'stt.stop':
       return { ...s, listening: false, caption: s.thinking || s.speaking ? s.caption : '' };
     case 'agent.status': {
-      const busy = BUSY.has(e.status);
+      const agentBusy = BUSY.has(e.status);
+      const busy = agentBusy
+        ? s.busy.includes(e.agent)
+          ? s.busy
+          : [...s.busy, e.agent]
+        : s.busy.filter((a) => a !== e.agent);
+      const anyBusy = busy.length > 0;
       return {
         ...s,
-        thinking: busy,
-        caption: busy ? (e.task ?? 'Thinking…') : s.speaking ? s.caption : '',
-        mood: busy && s.mood === 'concerned' ? 'neutral' : s.mood,
+        busy,
+        thinking: anyBusy,
+        // A worker's stage label ("Searching the web…") becomes the caption; its bare
+        // "started" (no task) must not stomp the label already showing.
+        caption: agentBusy
+          ? (e.task ?? (s.caption || 'Thinking…'))
+          : anyBusy || s.speaking
+            ? s.caption
+            : '',
+        mood: agentBusy && s.mood === 'concerned' ? 'neutral' : s.mood,
       };
     }
     case 'speech.start':
@@ -74,9 +93,10 @@ export function reduceFace(s: FaceState, e: FaceEvent): FaceState {
     case 'speech.end':
       return { ...s, speaking: false, caption: s.thinking ? s.caption : '' };
     case 'task.done':
-      return { ...s, thinking: false, mood: 'pleased' };
+      // The turn is over, whoever was still marked busy.
+      return { ...s, thinking: false, busy: [], mood: 'pleased' };
     case 'error':
-      return { ...s, thinking: false, speaking: false, mood: 'concerned' };
+      return { ...s, thinking: false, busy: [], speaking: false, mood: 'concerned' };
     case 'connection':
       return e.online
         ? { ...s, offline: false, mood: s.mood === 'concerned' ? 'neutral' : s.mood }
@@ -101,8 +121,8 @@ export const useFaceStore = create<FaceStore>((set, get) => ({
   ...initialFace,
 
   apply(e) {
-    const { listening, speaking, thinking, offline, mood, caption } = get();
-    set(reduceFace({ listening, speaking, thinking, offline, mood, caption }, e));
+    const { listening, speaking, thinking, offline, mood, caption, busy } = get();
+    set(reduceFace({ listening, speaking, thinking, offline, mood, caption, busy }, e));
     if (e.type === 'task.done') {
       if (decayTimer) clearTimeout(decayTimer);
       decayTimer = setTimeout(() => get().apply({ type: 'mood.decay' }), PLEASED_DECAY_MS);

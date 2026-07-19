@@ -1,5 +1,24 @@
-import type { Message } from '../../api/types';
+import type { DelegationRecord, Message } from '../../api/types';
 import { Markdown } from './Markdown';
+import { SourcesBlock } from './SourcesBlock';
+
+const OUTCOME: Partial<Record<NonNullable<DelegationRecord['status']>, string>> = {
+  cancelled: ' (stopped)',
+  failed: ' (failed)',
+};
+
+/** "→ researcher: latest Node.js LTS version" — visible orchestration, in the transcript. */
+function DelegationLine({ delegation }: { delegation: DelegationRecord }) {
+  // A retry says what it's doing rather than repeating the task: the user sees SOUL
+  // double-checking itself, which is the point of showing this at all.
+  const what = delegation.attempt > 1 ? '(double-checking, other sources)' : delegation.task;
+  return (
+    <div className="truncate font-mono text-[10px] text-muted" title={delegation.task}>
+      → {delegation.to}: {what}
+      {delegation.status ? (OUTCOME[delegation.status] ?? '') : ''}
+    </div>
+  );
+}
 
 export function MessageBubble({ message }: { message: Message }) {
   if (message.role === 'user') {
@@ -11,13 +30,22 @@ export function MessageBubble({ message }: { message: Message }) {
       </div>
     );
   }
+  const delegations = message.delegations ?? [];
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] rounded-lg border-l-2 border-accent-dim bg-surface px-4 py-3">
         <div className="mb-1 font-mono text-[10px] font-semibold tracking-[0.25em] text-accent-dim">
           ◉ SOUL
         </div>
+        {delegations.length > 0 && (
+          <div className="mb-2 space-y-0.5 border-l border-line pl-2">
+            {delegations.map((delegation, i) => (
+              <DelegationLine key={`${delegation.to}-${delegation.attempt}-${i}`} delegation={delegation} />
+            ))}
+          </div>
+        )}
         <Markdown text={message.text} />
+        {delegations.length > 0 && <SourcesBlock delegations={delegations} />}
       </div>
     </div>
   );

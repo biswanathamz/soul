@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import { getAgents } from '../api/rest';
-import type { AgentStatus, AgentStatusPayload, DelegationPayload } from '../api/types';
+import type {
+  AgentStatus,
+  AgentStatusPayload,
+  DelegationPayload,
+  DelegationRecord,
+  DelegationResultPayload,
+} from '../api/types';
 
 export interface AgentView {
   role: string;
@@ -15,25 +21,34 @@ export interface AgentView {
 
 export interface DelegationView extends DelegationPayload {
   at: number;
+  status?: DelegationResultPayload['status'];
+  confidence?: number;
+  sources?: DelegationResultPayload['sources'];
 }
 
 const MAX_DELEGATIONS = 20;
-const BUSY: ReadonlySet<AgentStatus> = new Set(['thinking', 'delegating', 'working']);
+export const BUSY: ReadonlySet<AgentStatus> = new Set(['thinking', 'delegating', 'working']);
 
 interface AgentState {
   agents: Record<string, AgentView>;
   delegations: DelegationView[];
+  /** Delegations of the turn in flight — drained onto the answer when it lands. */
+  turn: DelegationView[];
   lastDelegation: DelegationView | null;
   hydrate: () => Promise<void>;
   applyStatus: (role: string, payload: AgentStatusPayload) => void;
   applyDelegation: (payload: DelegationPayload) => void;
+  applyDelegationResult: (payload: DelegationResultPayload) => void;
+  /** Drain the current turn's delegations so they can be attached to the answer. */
+  takeTurn: () => DelegationRecord[];
   applyTool: (role: string, note: string | null) => void;
   setModel: (role: string, model: string) => void;
 }
 
-export const useAgentStore = create<AgentState>((set) => ({
+export const useAgentStore = create<AgentState>((set, get) => ({
   agents: {},
   delegations: [],
+  turn: [],
   lastDelegation: null,
 
   async hydrate() {
@@ -93,9 +108,31 @@ export const useAgentStore = create<AgentState>((set) => ({
       const delegation: DelegationView = { ...payload, at: Date.now() };
       return {
         delegations: [...s.delegations, delegation].slice(-MAX_DELEGATIONS),
+        turn: [...s.turn, delegation],
         lastDelegation: delegation,
       };
     });
+  },
+
+  applyDelegationResult(payload) {
+    const merge = (d: DelegationView): DelegationView =>
+      d.id === payload.id
+        ? { ...d, status: payload.status, confidence: payload.confidence, sources: payload.sources }
+        : d;
+    set((s) => ({ delegations: s.delegations.map(merge), turn: s.turn.map(merge) }));
+  },
+
+  takeTurn() {
+    const records: DelegationRecord[] = get().turn.map((d) => ({
+      to: d.to,
+      task: d.task,
+      attempt: d.attempt,
+      status: d.status,
+      confidence: d.confidence,
+      sources: d.sources,
+    }));
+    set({ turn: [] });
+    return records;
   },
 
   applyTool(role, note) {

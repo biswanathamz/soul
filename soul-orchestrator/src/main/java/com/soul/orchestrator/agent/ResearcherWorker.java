@@ -47,6 +47,8 @@ public class ResearcherWorker {
     private static final Pattern TITLE_LINE = Pattern.compile("(?im)^Title:\\s*(.+)$");
     /** A rating we can't read is a format failure, not evidence of certainty. */
     private static final double UNRATED = 0.5;
+    /** Independent sources the Researcher must read before it may report (goal 5). */
+    private static final int MIN_SOURCES = 2;
 
     private final SoulProperties props;
     private final AgentLoop loop;
@@ -105,6 +107,7 @@ public class ResearcherWorker {
                     .history(List.of(ChatMessage.user(prompt(command))))
                     .cancelledWhen(() -> cancellation.isCancelled(command.id()))
                     .observedBy(narrator)
+                    .answerGate(narrator::mustReadEnough)
                     .build());
 
             switch (outcome.status()) {
@@ -193,6 +196,32 @@ public class ResearcherWorker {
             return List.copyOf(sources);
         }
 
+        /**
+         * Goal 5 — "several independent sources, not one" — enforced rather than requested.
+         *
+         * <p>Live runs showed both ways an 8B model dodges it: reporting straight from the
+         * snippets (0 sources), and stopping after one page. One page is where SOUL got
+         * "Node.js v16.x… v25 will be the latest LTS" out of a single end-of-life table
+         * with nothing to contradict it. The loop insists once; if the model still won't,
+         * the evidence cap prices the result honestly (1 source ⇒ ≤0.6 ⇒ hedged).
+         */
+        String mustReadEnough(String answer) {
+            int wanted = Math.min(MIN_SOURCES, found);
+            if (found == 0 || sources.size() >= wanted) {
+                return null; // nothing to read, or it read enough — let it report
+            }
+            if (sources.isEmpty()) {
+                return "You have not opened a single one of those results. A snippet is not "
+                        + "evidence — it is a headline. Call fetch-page on the most promising "
+                        + "results (different sites, not the same one twice), read what they "
+                        + "actually say, and only then report your findings.";
+            }
+            return "You have read one page. One page cannot be checked against anything — if it "
+                    + "is out of date or you misread it, nothing catches that. Call fetch-page on "
+                    + "another result from a DIFFERENT site, see whether the two agree, and say so "
+                    + "in your findings.";
+        }
+
         @Override
         public void onStep(int step) {
             // The model calling home after reading something is it composing its findings.
@@ -208,10 +237,13 @@ public class ResearcherWorker {
                 events.publish(AgentEvent.progress(command, AGENT, "searching", "Searching the web…"));
             } else if (FETCH_PAGE.equals(call.name())) {
                 read++;
+                // A URL we can't parse a host from still gets a readable line, not
+                // "Reading  (1/5)" with a hole in it (seen live).
                 String host = hostOf(String.valueOf(call.arguments().get("url")));
+                String what = host.isBlank() ? "a source" : host;
                 String label = found > 0
-                        ? "Reading " + host + " (" + read + "/" + found + ")"
-                        : "Reading " + host;
+                        ? "Reading " + what + " (" + read + "/" + found + ")"
+                        : "Reading " + what;
                 events.publish(AgentEvent.progress(command, AGENT, "reading", label,
                         read, found > 0 ? found : null));
             }

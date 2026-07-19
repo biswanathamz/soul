@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { getConversation, sendChat } from '../api/rest';
-import type { Message } from '../api/types';
+import type { DelegationRecord, Message } from '../api/types';
 
 interface StreamBuffer {
   messageId: string;
@@ -16,7 +16,7 @@ interface ChatState {
   error: string | null;
   send: (text: string) => Promise<void>;
   appendToken: (messageId: string, token: string) => void;
-  commitStream: (finalText?: string) => void;
+  commitStream: (finalText?: string, delegations?: DelegationRecord[]) => void;
   fail: (message: string) => void;
   dismissError: () => void;
   rehydrate: () => Promise<void>;
@@ -56,7 +56,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
-  commitStream(finalText) {
+  commitStream(finalText, delegations) {
     set((s) => {
       const text = finalText ?? s.streaming?.text ?? '';
       if (!text) return { streaming: null, sending: false };
@@ -65,6 +65,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         role: 'assistant',
         text,
         createdAt: new Date().toISOString(),
+        ...(delegations?.length ? { delegations } : {}),
       };
       return { messages: [...s.messages, message], streaming: null, sending: false };
     });

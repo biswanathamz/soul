@@ -23,7 +23,9 @@ public record LoopSpec(
         /** Checked at every step boundary and on every streamed token (§3.5). */
         BooleanSupplier cancelled,
         /** Narrates the run without steering it — how a worker reports staged progress. */
-        LoopObserver observer) {
+        LoopObserver observer,
+        /** Vets the final answer; may send the model back once. Non-streaming agents only. */
+        AnswerGate answerGate) {
 
     public LoopSpec {
         history = history == null ? List.of() : List.copyOf(history);
@@ -31,6 +33,7 @@ public record LoopSpec(
         onToken = onToken == null ? token -> { } : onToken;
         cancelled = cancelled == null ? () -> false : cancelled;
         observer = observer == null ? LoopObserver.NONE : observer;
+        answerGate = answerGate == null ? AnswerGate.ACCEPT : answerGate;
     }
 
     public static Builder forAgent(String agent) {
@@ -46,6 +49,7 @@ public record LoopSpec(
         private Consumer<String> onToken;
         private BooleanSupplier cancelled;
         private LoopObserver observer;
+        private AnswerGate answerGate;
 
         private Builder(String agent) {
             this.agent = agent;
@@ -53,6 +57,11 @@ public record LoopSpec(
 
         public Builder observedBy(LoopObserver observer) {
             this.observer = observer;
+            return this;
+        }
+
+        public Builder answerGate(AnswerGate answerGate) {
+            this.answerGate = answerGate;
             return this;
         }
 
@@ -87,7 +96,8 @@ public record LoopSpec(
         }
 
         public LoopSpec build() {
-            return new LoopSpec(agent, conversationId, text, history, builtins, onToken, cancelled, observer);
+            return new LoopSpec(agent, conversationId, text, history, builtins, onToken, cancelled,
+                    observer, answerGate);
         }
     }
 }

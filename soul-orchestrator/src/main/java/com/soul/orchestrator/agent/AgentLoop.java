@@ -80,6 +80,7 @@ public class AgentLoop {
 
         int maxSteps = cfg == null ? FALLBACK_MAX_STEPS : cfg.getMaxSteps();
         String model = cfg == null ? FALLBACK_MODEL : cfg.getModel();
+        boolean nudged = false;
 
         for (int step = 0; step < maxSteps; step++) {
             if (spec.cancelled().getAsBoolean()) {
@@ -101,7 +102,17 @@ public class AgentLoop {
             }
 
             if (!turn.hasToolCalls()) {
-                return LoopOutcome.answered(turn.content());
+                String nudge = spec.answerGate().vet(turn.content());
+                if (nudge == null || nudged) {
+                    // Vetted every time so the gate sees the outcome, but sent back only
+                    // once: a gate the model can't satisfy must cost a step, not the budget.
+                    return LoopOutcome.answered(turn.content());
+                }
+                log.info("answer gate sent {} back: {}", agent, nudge);
+                messages.add(ChatMessage.assistant(turn.content()));
+                messages.add(ChatMessage.user(nudge));
+                nudged = true;
+                continue;
             }
 
             messages.add(ChatMessage.assistantToolCalls(turn.toolCalls()));

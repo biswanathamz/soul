@@ -1,4 +1,5 @@
 import { MotionConfig } from 'framer-motion';
+import { DelegationStrip } from './components/agents/DelegationStrip';
 import { ChatDock } from './components/chat/ChatDock';
 import { ErrorBanner } from './components/common/ErrorBanner';
 import { SoulFace } from './components/face/SoulFace';
@@ -20,6 +21,7 @@ export default function App() {
         <ErrorBanner />
         <main className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
           <SoulFace />
+          <DelegationStrip />
           <ChatDock />
         </main>
         <SettingsDrawer />

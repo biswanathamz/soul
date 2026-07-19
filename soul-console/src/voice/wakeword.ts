@@ -9,6 +9,8 @@
  * Wake mode stays off by default either way.
  */
 
+import { cancelConversation } from '../api/rest';
+import { BUSY, useAgentStore } from '../state/agentStore';
 import { useChatStore } from '../state/chatStore';
 import { useSettingsStore } from '../state/settingsStore';
 import { useVoiceStore } from '../state/voiceStore';
@@ -19,11 +21,19 @@ import { isSttSupported, startRecognition, type SttHandle } from './stt';
 // 'seoul' / 'sole' / 'saul' / 'sol' are common recognizer mishears of "soul".
 const WAKE_RE = /\b(?:hey|hi)[,!.]?\s+(?:soul|seoul|sole|saul|sol)\b[,!.:;]?\s*/i;
 
+/** Deliberately the whole utterance: "don't stop" must not cancel anything. */
+const STOP_RE = /^\s*(?:stop|cancel|abort|nevermind|never mind)(?:\s+(?:it|that))?\b[.!]?\s*$/i;
+
 /** Pure matcher: did the transcript wake SOUL, and what was said after the name? */
 export function matchWake(transcript: string): { matched: boolean; remainder: string } {
   const m = WAKE_RE.exec(transcript);
   if (!m) return { matched: false, remainder: '' };
   return { matched: true, remainder: transcript.slice(m.index + m[0].length).trim() };
+}
+
+/** Pure matcher: is this utterance the user telling SOUL to stop? */
+export function isStopPhrase(transcript: string): boolean {
+  return STOP_RE.test(transcript);
 }
 
 // ---------------------------------------------------------------------------
@@ -59,6 +69,25 @@ function shouldListen(): boolean {
   return true;
 }
 
+/**
+ * "Stop." — the same cancel route the strip's button hits (§3.5: one mechanism, three
+ * triggers). Only fires while a sub-agent is actually working, which is both what the
+ * user means and what keeps an overheard "stop" from doing anything.
+ */
+function tryStop(transcript: string): boolean {
+  if (!isStopPhrase(transcript)) return false;
+  const working = Object.values(useAgentStore.getState().agents)
+    .some((a) => a.role !== 'super' && BUSY.has(a.status));
+  const conversationId = useChatStore.getState().conversationId;
+  if (!working || !conversationId) return false;
+  useVoiceStore.getState().stopSpeaking();
+  chime();
+  void cancelConversation(conversationId).catch(() => {
+    /* the wind-down never started; the strip's button is still there */
+  });
+  return true;
+}
+
 function onWake(remainder: string): void {
   stopLoop();
   useVoiceStore.getState().stopSpeaking(); // barge-in: silence SOUL the moment she's named
@@ -78,7 +107,13 @@ function startLoop(): void {
     continuous: true,
     onFinal: (text: string) => {
       const { matched, remainder } = matchWake(text);
-      if (matched) onWake(remainder);
+      if (matched) {
+        // "Hey SOUL, stop" — cancel rather than asking her "stop" as a question.
+        if (!tryStop(remainder)) onWake(remainder);
+        return;
+      }
+      // A bare "stop" mid-research: you shouldn't have to say her name to call her off.
+      tryStop(text);
     },
     onError: (err: string) => {
       // Visible at default console level — mic-denied would otherwise fail silently.

@@ -10,7 +10,12 @@ soul:
     hooks:  { path: ../hookspool, enabled: true, default-timeout-seconds: 5 }
 
   delegation:                     # generic — applies to any worker (docs/researcher-agent.md §5.1)
-    timeout-seconds: 120          # a timed-out worker is sent a cancel, not just abandoned
+    # Measured on the reference box (llama3.1:8b, 4 GB VRAM): a full research loop —
+    # search, read two independent sources, compose — runs ~150 s, because every model
+    # call costs 20–40 s. 120 s cut it off mid-flight and turned good research into an
+    # honest "I couldn't find out". Tune down on faster hardware; the user is never stuck
+    # waiting regardless, since ⏹ stop cancels at the next step boundary.
+    timeout-seconds: 240          # a timed-out worker is sent a cancel, not just abandoned
     confidence:
       retry-below: 0.4            # below this → try again with different sources
       hedge-below: 0.7            # below this → answer with explicit uncertainty
