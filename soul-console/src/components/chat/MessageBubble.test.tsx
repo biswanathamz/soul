@@ -31,6 +31,29 @@ describe('MessageBubble — visible orchestration', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
+  it('stamps each message with the time it was sent', () => {
+    const { container, rerender } = render(
+      <MessageBubble message={{ ...answer(), createdAt: '2026-07-19T16:07:00Z' }} />,
+    );
+    // Assert the semantic <time> (stable) rather than the locale-formatted text.
+    const stamp = container.querySelector('time');
+    expect(stamp).toHaveAttribute('dateTime', '2026-07-19T16:07:00Z');
+    expect(stamp?.textContent).toMatch(/\d/);
+
+    // Both roles get one.
+    rerender(
+      <MessageBubble
+        message={{ id: 'u1', role: 'user', text: 'hi', createdAt: '2026-07-19T16:07:00Z' }}
+      />,
+    );
+    expect(container.querySelector('time')).toHaveAttribute('dateTime', '2026-07-19T16:07:00Z');
+  });
+
+  it('omits the stamp when the timestamp is unparseable rather than showing garbage', () => {
+    const { container } = render(<MessageBubble message={{ ...answer(), createdAt: 'not-a-date' }} />);
+    expect(container.querySelector('time')).not.toBeInTheDocument();
+  });
+
   it('shows who was asked and what for', () => {
     render(<MessageBubble message={answer([researched])} />);
     expect(screen.getByText(/→ researcher: latest Node\.js LTS version/)).toBeInTheDocument();
