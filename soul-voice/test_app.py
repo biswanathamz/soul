@@ -120,6 +120,19 @@ def test_stt_transcribes_wav(client, monkeypatch):
     assert fake.calls[0]["vad_filter"] is True
 
 
+def test_stt_biases_decoding_toward_known_proper_nouns(client, monkeypatch):
+    # Live, greedy decoding with no vocabulary hint turned "check OpenAI's blog" into
+    # "check open your eyes blog", and SOUL researched the wrong thing (docs/bug/).
+    fake = FakeWhisper()
+    monkeypatch.setattr(appmod, "_load_stt", lambda: fake)
+    client.post("/api/v1/stt", content=_tiny_wav(), headers={"content-type": "audio/wav"})
+
+    kwargs = fake.calls[0]
+    assert "OpenAI" in kwargs["initial_prompt"]
+    # Beam search, so a bad first token can still be revised.
+    assert kwargs["beam_size"] > 1
+
+
 def test_stt_rejects_empty_body(client, monkeypatch):
     monkeypatch.setattr(appmod, "_load_stt", lambda: FakeWhisper())
     assert client.post("/api/v1/stt", content=b"").status_code == 400
