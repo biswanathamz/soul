@@ -8,11 +8,12 @@ beforeEach(() => {
   useAgentStore.setState(initialState, true);
 });
 
-const delegation = (id: string): DelegationPayload => ({
+const delegation = (id: string, attempt = 1): DelegationPayload => ({
   id,
   from: 'super',
-  to: 'coder',
-  instruction: 'do the thing',
+  to: 'researcher',
+  task: 'latest Node.js LTS version',
+  attempt,
 });
 
 describe('agentStore', () => {
@@ -52,5 +53,46 @@ describe('agentStore', () => {
   it('applyTool is a no-op for unknown agents', () => {
     useAgentStore.getState().applyTool('ghost', 'x');
     expect(useAgentStore.getState().agents.ghost).toBeUndefined();
+  });
+
+  it('attaches a result to the delegation it belongs to', () => {
+    const store = useAgentStore.getState();
+    store.applyDelegation(delegation('d1'));
+    store.applyDelegation(delegation('d2'));
+
+    store.applyDelegationResult({
+      id: 'd2',
+      status: 'completed',
+      confidence: 0.94,
+      sources: [{ title: 'Node.js', url: 'https://nodejs.org' }],
+    });
+
+    const [first, second] = useAgentStore.getState().delegations;
+    expect(first.confidence).toBeUndefined(); // correlated by id, not "the latest one"
+    expect(second.confidence).toBe(0.94);
+    expect(second.sources).toHaveLength(1);
+  });
+
+  it('takeTurn drains the turn so its delegations land on exactly one answer', () => {
+    const store = useAgentStore.getState();
+    store.applyDelegation(delegation('d1'));
+    store.applyDelegationResult({ id: 'd1', status: 'completed', confidence: 0.9, sources: [] });
+
+    const first = useAgentStore.getState().takeTurn();
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ to: 'researcher', attempt: 1, confidence: 0.9 });
+
+    // The next turn starts empty — a delegation is never claimed by two answers.
+    expect(useAgentStore.getState().takeTurn()).toEqual([]);
+    // …but the history ring buffer keeps it.
+    expect(useAgentStore.getState().delegations).toHaveLength(1);
+  });
+
+  it('a retry keeps both attempts in the turn', () => {
+    const store = useAgentStore.getState();
+    store.applyDelegation(delegation('d1', 1));
+    store.applyDelegation(delegation('d2', 2));
+
+    expect(useAgentStore.getState().takeTurn().map((d) => d.attempt)).toEqual([1, 2]);
   });
 });

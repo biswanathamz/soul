@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -46,7 +47,8 @@ class Failure(Exception):
     pass
 
 
-def run_entrypoint(path: Path, payload: dict, timeout: float) -> subprocess.CompletedProcess:
+def run_entrypoint(path: Path, payload: dict, timeout: float,
+                   env: dict | None = None) -> subprocess.CompletedProcess:
     """Execute an entrypoint by its shebang, feeding JSON on stdin."""
     try:
         return subprocess.run(
@@ -56,6 +58,7 @@ def run_entrypoint(path: Path, payload: dict, timeout: float) -> subprocess.Comp
             text=True,
             timeout=timeout,
             cwd=str(path.parent),
+            env={**os.environ, **(env or {})},
         )
     except PermissionError:
         raise Failure(f"{path} is not executable (chmod +x, and add a shebang)")
@@ -66,7 +69,7 @@ def run_entrypoint(path: Path, payload: dict, timeout: float) -> subprocess.Comp
 # --------------------------------------------------------------------------- #
 # Skills
 # --------------------------------------------------------------------------- #
-def check_skill(skill_dir: Path) -> None:
+def check_skill(skill_dir: Path, live: bool = False) -> None:
     manifest = skill_dir / "skill.yaml"
     if not manifest.exists():
         raise Failure("missing skill.yaml")
@@ -96,9 +99,17 @@ def check_skill(skill_dir: Path) -> None:
     if not isinstance(m.get("parameters"), dict):
         raise Failure("script skill missing 'parameters' (JSON-Schema object)")
 
-    sample_input = (m.get("example") or {}).get("input", {})
-    payload = {"skill": m["name"], "input": sample_input, "context": CTX}
-    proc = run_entrypoint(entry_path, payload, m.get("timeout_seconds", 10))
+    example = m.get("example") or {}
+    payload = {"skill": m["name"], "input": example.get("input", {}), "context": CTX}
+
+    # A skill that declares example.offline runs against its own canned fixtures, so CI
+    # never reaches the internet to smoke-test a network skill. --live opts back in.
+    env = {}
+    if example.get("offline") and not live:
+        if not m.get("permissions", {}).get("network"):
+            raise Failure("example.offline is only meaningful for a network skill")
+        env["SOUL_SKILL_OFFLINE"] = "1"
+    proc = run_entrypoint(entry_path, payload, m.get("timeout_seconds", 10), env)
     if proc.returncode != 0:
         raise Failure(f"exit {proc.returncode}: {proc.stderr.strip()}")
     try:
@@ -184,7 +195,7 @@ def scan(pool: Path, marker: str, checker) -> list[dict]:
         if not child.is_dir() or not (child / marker).exists():
             continue
         try:
-            checker(child)
+            checker(child)  # noqa: PLW0108 - checker signature varies by pool
             results.append({"name": child.name, "ok": True})
         except Failure as e:
             results.append({"name": child.name, "ok": False, "error": str(e)})
@@ -196,9 +207,11 @@ def scan(pool: Path, marker: str, checker) -> list[dict]:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Validate + smoke-test skillpool/ and hookspool/")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--live", action="store_true",
+                   help="let network skills reach the internet instead of their offline fixtures")
     args = p.parse_args(argv)
 
-    skills = scan(SKILLPOOL, "skill.yaml", check_skill)
+    skills = scan(SKILLPOOL, "skill.yaml", lambda d: check_skill(d, args.live))
     hooks = scan(HOOKSPOOL, "hook.yaml", check_hook)
     ok = all(r["ok"] for r in skills + hooks)
 

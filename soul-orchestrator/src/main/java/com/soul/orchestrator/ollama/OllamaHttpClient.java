@@ -98,6 +98,12 @@ public class OllamaHttpClient implements OllamaClient {
             }
         } catch (OllamaException e) {
             throw e;
+        } catch (RuntimeException e) {
+            // Thrown by the caller's own token consumer — the agent loop does this to abort
+            // a cancelled generation mid-stream (closing the reader drops the connection, so
+            // Ollama stops generating). That is the caller's exception, not a transport
+            // failure: don't disguise it as one.
+            throw e;
         } catch (Exception e) {
             throw new OllamaException("cannot reach Ollama at " + baseUrl + ": " + e.getMessage(), e);
         }

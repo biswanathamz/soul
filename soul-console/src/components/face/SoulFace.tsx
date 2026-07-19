@@ -26,8 +26,9 @@ export function SoulFace() {
   const offline = useFaceStore((s) => s.offline);
   const mood = useFaceStore((s) => s.mood);
   const caption = useFaceStore((s) => s.caption);
+  const busy = useFaceStore((s) => s.busy);
 
-  const activity = activityOf({ listening, speaking, thinking, offline, mood, caption });
+  const activity = activityOf({ listening, speaking, thinking, offline, mood, caption, busy });
 
   return (
     <div className="flex flex-col items-center gap-7 select-none">

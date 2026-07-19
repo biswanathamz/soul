@@ -50,14 +50,31 @@ class WebIntegrationTest {
     }
 
     @Test
-    void listsTheManagerAgentWithItsCapabilities() {
+    void stopIsAlwaysAcceptedEvenWithNothingToStop() {
+        // The stop button races the answer landing by nature; a 404 here would surface as
+        // an error banner for doing nothing wrong. Cancellation is cooperative, so the
+        // outcome arrives on the stream, never in this response (§3.5).
+        ResponseEntity<Void> res =
+                rest.postForEntity("/api/v1/conversations/never-existed/cancel", null, Void.class);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+    }
+
+    @Test
+    void listsTheFleetWithTheirCapabilities() {
         AgentDto[] agents = rest.getForObject("/api/v1/agents", AgentDto[].class);
-        assertThat(agents).hasSize(1);
+
+        assertThat(agents).extracting(AgentDto::role).containsExactly("super", "researcher");
+
         AgentDto manager = agents[0];
-        assertThat(manager.role()).isEqualTo("super");
         assertThat(manager.model()).isEqualTo("llama3.1:8b");
         assertThat(manager.skills()).contains("echo", "current-time", "persona");
         assertThat(manager.hooks()).contains("block-secrets");
+
+        AgentDto researcher = agents[1];
+        assertThat(researcher.description()).contains("current, real-world information");
+        assertThat(researcher.skills()).contains("web-search", "fetch-page", "researcher-persona");
+        // block-secrets gates the worker too, though its config never lists it (always-apply).
+        assertThat(researcher.hooks()).contains("audit-log", "block-secrets");
     }
 
     @Test

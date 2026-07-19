@@ -1,4 +1,6 @@
 import { MotionConfig } from 'framer-motion';
+import { DelegationStrip } from './components/agents/DelegationStrip';
+import { FleetBar } from './components/agents/FleetBar';
 import { ChatDock } from './components/chat/ChatDock';
 import { ErrorBanner } from './components/common/ErrorBanner';
 import { SoulFace } from './components/face/SoulFace';
@@ -17,9 +19,11 @@ export default function App() {
     <MotionConfig reducedMotion={reducedMotion ? 'always' : 'user'}>
       <div className={cn('flex h-full flex-col', reducedMotion && 'reduce-motion')}>
         <Header />
+        <FleetBar />
         <ErrorBanner />
         <main className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
           <SoulFace />
+          <DelegationStrip />
           <ChatDock />
         </main>
         <SettingsDrawer />

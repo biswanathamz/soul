@@ -55,12 +55,16 @@ public class AgentsController {
                 role,
                 cfg.getModel(),
                 "idle",
-                describe(role),
+                describe(role, cfg),
                 caps.skills().stream().map(SkillManifest::name).toList(),
                 caps.hooks().stream().map(HookManifest::name).toList());
     }
 
-    private static String describe(String role) {
-        return "super".equals(role) ? "Manager — plans, delegates, runs skills & hooks" : role;
+    private static String describe(String role, SoulProperties.Agent cfg) {
+        if ("super".equals(role)) {
+            return "Manager — plans, delegates, runs skills & hooks";
+        }
+        // Workers describe themselves in config — the same line the delegate tool quotes.
+        return cfg.getDescription().isBlank() ? role : cfg.getDescription().strip();
     }
 }

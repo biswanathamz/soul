@@ -12,6 +12,10 @@ import com.soul.orchestrator.ollama.OllamaClient;
 import com.soul.orchestrator.ollama.StubOllamaClient;
 import com.soul.orchestrator.ollama.ToolCall;
 import com.soul.orchestrator.ollama.ToolSpec;
+import com.soul.orchestrator.protocol.InProcessAgentRegistry;
+import com.soul.orchestrator.protocol.InProcessCommandBus;
+import com.soul.orchestrator.protocol.InProcessEventBus;
+import com.soul.orchestrator.protocol.PendingDelegations;
 import com.soul.orchestrator.runtime.Runner;
 import com.soul.orchestrator.skills.SkillRegistry;
 import com.soul.orchestrator.ws.EventSink;
@@ -43,8 +47,15 @@ class ManagerAgentTest {
         cfg.setHooks(List.of("audit-log", "block-secrets", "inject-time"));
         props.setAgents(Map.of("super", cfg));
         CapabilityResolver resolver = new CapabilityResolver(props, skills, hooks);
-        return new ManagerAgent(props, resolver, new HookDispatcher(new Runner()),
-                new Runner(), ollama, store, sink);
+        HookDispatcher dispatcher = new HookDispatcher(new Runner());
+        AgentLoop loop = new AgentLoop(props, resolver, dispatcher, new Runner(), ollama, sink,
+                new SkillEnvironment(props));
+        // No worker registers here, so the Manager is offered no delegate tool at all —
+        // exactly the pre-researcher behaviour these tests pin down.
+        InProcessCommandBus bus = new InProcessCommandBus();
+        DelegateTool delegate = new DelegateTool(new InProcessAgentRegistry(bus),
+                new PendingDelegations(bus, new InProcessEventBus()), props, sink);
+        return new ManagerAgent(resolver, dispatcher, loop, delegate, store, sink);
     }
 
     private List<WsEvent> ofType(String type) {

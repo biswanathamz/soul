@@ -20,8 +20,11 @@ export function ChatPanel() {
     setAtBottom(true);
   };
 
+  // min-h-0 on the root: without it this flex child keeps its content's full height, so the
+  // inner overflow-y-auto never gets a bounded height to scroll within — the transcript just
+  // pushes the composer off-screen instead of scrolling.
   return (
-    <main className="relative flex min-w-0 flex-1 flex-col bg-bg">
+    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-bg">
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-y-auto"
