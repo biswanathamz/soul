@@ -47,8 +47,6 @@ public class ResearcherWorker {
     private static final Pattern TITLE_LINE = Pattern.compile("(?im)^Title:\\s*(.+)$");
     /** A rating we can't read is a format failure, not evidence of certainty. */
     private static final double UNRATED = 0.5;
-    /** Independent sources the Researcher must read before it may report (goal 5). */
-    private static final int MIN_SOURCES = 2;
 
     private final SoulProperties props;
     private final AgentLoop loop;
@@ -206,7 +204,7 @@ public class ResearcherWorker {
          * the evidence cap prices the result honestly (1 source ⇒ ≤0.6 ⇒ hedged).
          */
         String mustReadEnough(String answer) {
-            int wanted = Math.min(MIN_SOURCES, found);
+            int wanted = Math.min(props.getResearch().getMinSources(), found);
             if (found == 0 || sources.size() >= wanted) {
                 return null; // nothing to read, or it read enough — let it report
             }

@@ -183,7 +183,8 @@ export function SettingsDrawer() {
               <span>
                 Barge-in
                 <span className="block text-xs text-muted">
-                  Say “Hey SOUL” while she's speaking to interrupt (local engine + wake word)
+                  Keep the mic open while SOUL speaks so “Hey SOUL” can interrupt her.
+                  Off by default — best with headphones, or her own voice can trip the mic.
                 </span>
               </span>
             </label>

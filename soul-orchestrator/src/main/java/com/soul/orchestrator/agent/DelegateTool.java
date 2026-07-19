@@ -43,13 +43,15 @@ public class DelegateTool {
     private final PendingDelegations pending;
     private final SoulProperties props;
     private final EventSink events;
+    private final DelegationGuard guard;
 
     public DelegateTool(AgentRegistry registry, PendingDelegations pending, SoulProperties props,
-            EventSink events) {
+            EventSink events, DelegationGuard guard) {
         this.registry = registry;
         this.pending = pending;
         this.props = props;
         this.events = events;
+        this.guard = guard;
     }
 
     /**
@@ -83,14 +85,18 @@ public class DelegateTool {
     private String description() {
         StringBuilder sb = new StringBuilder(
                 "Hand a task to a specialist agent and wait for its result.\n\n"
-                + "USE IT when the answer depends on something you cannot know from training: "
-                + "today's facts, current versions, prices, news, weather, scores, or anything "
-                + "that may have changed. If you are about to state a fact that could be out of "
-                + "date, delegate instead.\n"
-                + "DO NOT USE IT for anything you can already do: arithmetic, definitions, "
-                + "grammar, writing, code, reasoning, or facts that do not change. Delegating "
-                + "costs the user around a minute of waiting, so \"what is 2+2\" or \"write me a "
-                + "haiku\" must be answered directly, right now.\n\n"
+                + "USE IT whenever the honest answer depends on something newer than your "
+                + "training: today's news, live prices, the weather, sports scores, the LATEST "
+                + "or CURRENT version of software, a release date, or any specific fact that "
+                + "keeps changing. If the question asks for the newest/latest/current state of "
+                + "something that moves, DELEGATE — your memory is stale for exactly these, and "
+                + "guessing is worse than waiting. \"Latest Node.js LTS\", \"current Bitcoin "
+                + "price\", \"who won last night\" are research tasks — do not answer them from "
+                + "memory.\n\n"
+                + "DO NOT USE IT for what you already know or can do: arithmetic, definitions, "
+                + "grammar, writing, code, reasoning, and stable, well-known facts — who leads a "
+                + "country, a capital city, a founder, a historical date. Delegating one of those "
+                + "just makes the user wait a minute for something you could say instantly.\n\n"
                 + "Pick the capability that matches the need:\n");
         for (AgentDescriptor agent : registry.available()) {
             Set<String> owned = capabilitiesOf(agent);
@@ -126,6 +132,16 @@ public class DelegateTool {
         String task = string(call.arguments().get("task"));
         if (task.isBlank()) {
             return "Error: 'task' is required — state the task in full.";
+        }
+        // The deterministic backstop against over-delegation (docs/bug/…): a well-known fact
+        // never reaches a worker, no matter what the model tried. Answering it here, in the
+        // same loop, costs the user ~0 s instead of a ~90 s research round-trip.
+        if (guard.answerableFromMemory(task)) {
+            log.info("delegation of a well-known fact refused by the guard: {}", task);
+            return "Do NOT delegate this — it is well-established knowledge you already have, "
+                    + "not a fast-moving fact. Answer the user directly and confidently from your "
+                    + "own memory, right now. (Delegation is only for things that genuinely change: "
+                    + "prices, weather, scores, live news, software versions, today's events.)";
         }
         Optional<AgentDescriptor> provider = registry.whoSupports(capability);
         if (provider.isEmpty()) {

@@ -8,7 +8,12 @@ interface SettingsState {
   voiceMode: VoiceMode;
   /** local = whisper on soul-voice (private); browser = Web Speech (cloud-backed in Chrome). */
   sttEngine: SttEngine;
-  /** Say "Hey SOUL" while she's talking to interrupt (local engine only). */
+  /**
+   * Keep the mic open while SOUL speaks so "Hey SOUL" can interrupt her (local engine).
+   * Off by default: with the mic live during playback her own neural-TTS voice can trip
+   * the wake word and cut her off (docs/bug/latency-and-tts-interruption.md). Opt in on
+   * headphones, where there's no speaker→mic echo path.
+   */
   bargeIn: boolean;
   /** Wake SOUL with three claps 👏👏👏 (local engine only). */
   clapWake: boolean;
@@ -31,7 +36,7 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       voiceMode: 'ptt',
       sttEngine: 'local',
-      bargeIn: true,
+      bargeIn: false,
       clapWake: true,
       soulVoiceId: null,
       ttsVoiceURI: null,
@@ -44,6 +49,17 @@ export const useSettingsStore = create<SettingsState>()(
       setTtsVoice: (ttsVoiceURI) => set({ ttsVoiceURI }),
       setReducedMotion: (reducedMotion) => set({ reducedMotion }),
     }),
-    { name: 'soul.settings.v1' },
+    {
+      name: 'soul.settings.v1',
+      // Bump when a persisted default must be corrected for existing testers. v1 turns
+      // barge-in off once (it shipped on by default and cut SOUL off mid-sentence); the
+      // user's other saved settings are preserved, and they can re-enable it in Settings.
+      version: 1,
+      migrate: (persisted, from) => {
+        const state = persisted as Partial<SettingsState>;
+        if (from < 1) state.bargeIn = false;
+        return state as SettingsState;
+      },
+    },
   ),
 );
