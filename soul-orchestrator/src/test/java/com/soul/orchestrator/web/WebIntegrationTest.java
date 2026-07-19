@@ -66,7 +66,7 @@ class WebIntegrationTest {
         assertThat(agents).extracting(AgentDto::role).containsExactly("super", "researcher");
 
         AgentDto manager = agents[0];
-        assertThat(manager.model()).isEqualTo("llama3.1:8b");
+        assertThat(manager.model()).isEqualTo("llama3.2:3b");
         assertThat(manager.skills()).contains("echo", "current-time", "persona");
         assertThat(manager.hooks()).contains("block-secrets");
 

@@ -2,6 +2,10 @@ soul:
   ollama:
     base-url: ${OLLAMA_HOST:http://localhost:11434}
     request-timeout-seconds: 120
+    # Keep the model resident between turns. Without this each chat request lets Ollama
+    # fall back to its 5-minute default, so an idle spell unloads the model and the next
+    # question pays a full cold reload (docs/bug/latency-and-tts-interruption.md).
+    keep-alive: 30m
   web:
     cors-allowed-origin: http://localhost:7787
 
@@ -23,13 +27,16 @@ soul:
 
   research:                       # researcher-specific knobs (§4.2)
     max-sources: 4
+    # One opened source instead of two: on the 4 GB box a second fetch+summarize turn adds
+    # ~40 s, and a lone source is already capped at ≤0.6 confidence and hedged. See docs/bug/.
+    min-sources: 1
     search:                       # the SearchConnector layer (§4.3) — providers are pluggable
       provider: ${SOUL_SEARCH_PROVIDER:duckduckgo}    # zero-setup default: no key, no account
       fallbacks: ${SOUL_SEARCH_FALLBACKS:}            # e.g. "searxng,brave" — tried in order
 
   agents:
     super:                        # the Manager — the only agent the user talks to
-      model: llama3.1:8b
+      model: llama3.2:3b          # fits 4 GB VRAM entirely → 100% GPU (see docs/bug/…)
       persona: jarvis
       max-steps: 6
       skills: [echo, current-time, persona]
@@ -37,7 +44,7 @@ soul:
       # No worker list here: the Manager delegates by capability, never by name.
 
     researcher:                   # the first worker agent
-      model: llama3.1:8b          # MAY differ per agent; same model = no VRAM swap on 4 GB
+      model: llama3.2:3b          # same model as the Manager = no VRAM swap on 4 GB
       persona: researcher
       max-steps: 8
       description: >-

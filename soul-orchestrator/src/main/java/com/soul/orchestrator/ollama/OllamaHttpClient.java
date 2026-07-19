@@ -34,12 +34,14 @@ public class OllamaHttpClient implements OllamaClient {
 
     private final String baseUrl;
     private final Duration timeout;
+    private final String keepAlive;
     private final HttpClient http = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
     public OllamaHttpClient(SoulProperties props) {
         this.baseUrl = props.getOllama().getBaseUrl().replaceAll("/+$", "");
         this.timeout = Duration.ofSeconds(props.getOllama().getRequestTimeoutSeconds());
+        this.keepAlive = props.getOllama().getKeepAlive();
     }
 
     @Override
@@ -47,6 +49,11 @@ public class OllamaHttpClient implements OllamaClient {
         ObjectNode body = mapper.createObjectNode();
         body.put("model", model);
         body.put("stream", true);
+        // Keep the model resident between turns; without this Ollama reverts to its 5-minute
+        // default per request, so an idle spell forces a cold reload on the next question.
+        if (keepAlive != null && !keepAlive.isBlank()) {
+            body.put("keep_alive", keepAlive);
+        }
         body.set("messages", encodeMessages(messages));
         if (tools != null && !tools.isEmpty()) {
             body.set("tools", encodeTools(tools));

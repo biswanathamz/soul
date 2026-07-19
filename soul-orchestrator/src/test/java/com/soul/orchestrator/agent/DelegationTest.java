@@ -73,7 +73,12 @@ class DelegationTest {
     }
 
     private ManagerAgent wire(OllamaClient managerModel, OllamaClient researcherModel) {
+        return wire(managerModel, researcherModel, 2); // corroboration by default, as in prod's field default
+    }
+
+    private ManagerAgent wire(OllamaClient managerModel, OllamaClient researcherModel, int minSources) {
         SoulProperties props = new SoulProperties();
+        props.getResearch().setMinSources(minSources);
         SoulProperties.Agent manager = new SoulProperties.Agent();
         manager.setModel("stub-manager");
         manager.setSkills(List.of("echo", "current-time", "persona"));
@@ -115,7 +120,7 @@ class DelegationTest {
         new ProtocolWsBridge(bus, sink);
         new ResearcherWorker(props, loop, registry, bus, cancellation).register();
 
-        DelegateTool delegate = new DelegateTool(registry, pending, props, sink);
+        DelegateTool delegate = new DelegateTool(registry, pending, props, sink, new DelegationGuard());
         return new ManagerAgent(resolver, hooks, loop, delegate, store, sink);
     }
 
@@ -502,6 +507,44 @@ class DelegationTest {
     }
 
     @Test
+    void withMinSourcesOneASingleReadPageIsAcceptedWithoutASecondFetch() {
+        // The latency relaxation (docs/bug/… round 2): on slow hardware, one opened page is
+        // enough to report — the second fetch+summarize cycle is what the gate no longer forces.
+        // The single source still caps confidence at ≤0.6, so honesty is preserved by the policy.
+        OllamaClient onePage = new OllamaClient() {
+            @Override
+            public ChatTurn chat(String m, List<ChatMessage> messages, List<ToolSpec> tools, Consumer<String> onToken) {
+                List<String> results = toolResults(messages);
+                if (results.isEmpty()) {
+                    return new ChatTurn("", List.of(new ToolCall("web-search", Map.of("query", "node lts"))));
+                }
+                if (results.size() == 1) {
+                    return new ChatTurn("", List.of(new ToolCall("fetch-page",
+                            Map.of("url", "https://nodejs.org/en/about/previous-releases"))));
+                }
+                return new ChatTurn(findings(0.9), List.of());
+            }
+
+            @Override
+            public List<String> listModels() {
+                return List.of();
+            }
+        };
+        ManagerAgent manager = wire(managerThatDelegates("research.search"), onePage, 1);
+        store.append(CONV, "user", "latest node lts?");
+
+        manager.handle(CONV, "msg-1", "latest node lts?");
+
+        // Exactly one page read, never sent back for a second — the whole point of min-sources: 1.
+        assertThat(ws("tool.call")).filteredOn(e -> "fetch-page".equals(e.payload().get("tool"))).hasSize(1);
+        AgentEvent completed = protocol.stream().filter(e -> e.type().equals(AgentEvent.COMPLETED))
+                .findFirst().orElseThrow();
+        // One source → cap at 0.6, so the 0.9 self-rating is clamped down and honestly hedged.
+        assertThat(completed.result().confidence()).isEqualTo(0.6);
+        assertThat(completed.result().data()).extracting("sources").asList().hasSize(1);
+    }
+
+    @Test
     void aLowConfidenceResultIsRetriedOnceAgainstDifferentSources() {
         ManagerAgent manager = wire(managerThatDelegates("research.search"),
                 researcherRating(0.1, 0.9, new CountDownLatch(0), new CountDownLatch(0)));
@@ -588,7 +631,8 @@ class DelegationTest {
         // A fresh registry with nothing in it — SOUL before it had a fleet.
         InProcessCommandBus emptyBus = new InProcessCommandBus();
         DelegateTool delegate = new DelegateTool(new InProcessAgentRegistry(emptyBus),
-                new PendingDelegations(emptyBus, new InProcessEventBus()), new SoulProperties(), sink);
+                new PendingDelegations(emptyBus, new InProcessEventBus()), new SoulProperties(), sink,
+                new DelegationGuard());
 
         assertThat(delegate.forConversation(CONV)).isEmpty();
 

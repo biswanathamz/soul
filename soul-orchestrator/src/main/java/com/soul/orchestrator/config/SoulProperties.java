@@ -47,6 +47,8 @@ public class SoulProperties {
     public static class Ollama {
         private String baseUrl = "http://localhost:11434";
         private int requestTimeoutSeconds = 120;
+        /** How long Ollama keeps the model resident after a request (Ollama duration, e.g. "30m", "-1"). */
+        private String keepAlive = "30m";
 
         public String getBaseUrl() {
             return baseUrl;
@@ -62,6 +64,14 @@ public class SoulProperties {
 
         public void setRequestTimeoutSeconds(int requestTimeoutSeconds) {
             this.requestTimeoutSeconds = requestTimeoutSeconds;
+        }
+
+        public String getKeepAlive() {
+            return keepAlive;
+        }
+
+        public void setKeepAlive(String keepAlive) {
+            this.keepAlive = keepAlive;
         }
     }
 
@@ -104,6 +114,12 @@ public class SoulProperties {
     /** Researcher-specific knobs (docs/researcher-agent.md §4.2). */
     public static class Research {
         private int maxSources = 4;
+        /**
+         * Independent pages the Researcher must open before it may report (docs/researcher-agent.md
+         * goal 5). 2 corroborates; 1 trades a little rigour for roughly half the latency on slow
+         * hardware — a single-source answer is still capped at ≤0.6 confidence and hedged.
+         */
+        private int minSources = 2;
         private Search search = new Search();
 
         public int getMaxSources() {
@@ -112,6 +128,14 @@ public class SoulProperties {
 
         public void setMaxSources(int maxSources) {
             this.maxSources = maxSources;
+        }
+
+        public int getMinSources() {
+            return minSources;
+        }
+
+        public void setMinSources(int minSources) {
+            this.minSources = minSources;
         }
 
         public Search getSearch() {

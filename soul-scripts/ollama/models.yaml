@@ -13,11 +13,18 @@
 defaults:
   keep_alive: 30m
 
-# Manager-agent phase: only the Super Agent ("SOUL") model is provisioned.
-# Sub-agent models (coder/researcher/writer/analyst/sysops) get added back here
-# as each of those agents is built. See docs/manager-agent.md.
+# On a 4 GB card only one model fits in VRAM at a time, so the Manager and the
+# Researcher share one — a 3B model that fits ENTIRELY on the GPU. llama3.1:8b needs
+# ~5.6 GB and was running 50% on the CPU (see docs/bug/latency-and-tts-interruption.md),
+# which is what made a single answer take minutes. It stays here as an optional spare
+# (roles: [], not required) so it isn't pruned and you can rebind to it on a bigger GPU.
 models:
-  - name: llama3.1:8b
-    roles: [super]        # the Manager — plans, delegates, runs skills/hooks
+  - name: llama3.2:3b
+    roles: [super, researcher]   # Manager + first worker; fits 4 GB → 100% GPU
     required: true
     warm: true            # preload into RAM so the first message isn't a cold load
+
+  - name: llama3.1:8b
+    roles: []             # spare — kept for GPUs with the VRAM to run it fully
+    required: false
+    warm: false

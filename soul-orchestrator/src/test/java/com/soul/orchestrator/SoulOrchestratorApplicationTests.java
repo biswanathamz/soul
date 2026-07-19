@@ -25,7 +25,7 @@ class SoulOrchestratorApplicationTests {
     void bindsPerAgentConfig() {
         SoulProperties.Agent manager = props.getAgents().get("super");
         assertThat(manager).isNotNull();
-        assertThat(manager.getModel()).isEqualTo("llama3.1:8b");
+        assertThat(manager.getModel()).isEqualTo("llama3.2:3b"); // fits 4 GB VRAM; see docs/bug/
         assertThat(manager.getMaxSteps()).isEqualTo(6);
         assertThat(manager.getSkills()).contains("echo", "current-time", "persona");
     }

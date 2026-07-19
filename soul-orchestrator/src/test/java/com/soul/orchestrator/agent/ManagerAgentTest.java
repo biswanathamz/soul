@@ -54,7 +54,7 @@ class ManagerAgentTest {
         // exactly the pre-researcher behaviour these tests pin down.
         InProcessCommandBus bus = new InProcessCommandBus();
         DelegateTool delegate = new DelegateTool(new InProcessAgentRegistry(bus),
-                new PendingDelegations(bus, new InProcessEventBus()), props, sink);
+                new PendingDelegations(bus, new InProcessEventBus()), props, sink, new DelegationGuard());
         return new ManagerAgent(resolver, dispatcher, loop, delegate, store, sink);
     }
 
