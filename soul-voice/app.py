@@ -104,6 +104,21 @@ def voices() -> list[dict]:
 _stt = None
 _stt_lock = threading.Lock()
 
+# Whisper renders words it doesn't know phonetically, and the brand names SOUL is asked
+# about most are exactly the ones it doesn't know: live, "check OpenAI's blog" came back as
+# "check open your eyes blog", and SOUL then researched the wrong thing perfectly well
+# (docs/bug/stt-proper-noun-mistranscription.md). initial_prompt is decoder context, not a
+# filter — it biases spelling toward these without forbidding anything else.
+STT_PROMPT = os.environ.get(
+    "STT_PROMPT",
+    "A question for SOUL, a local AI assistant. Likely terms: OpenAI, ChatGPT, Anthropic, "
+    "Claude, Gemini, Llama, Ollama, GitHub, Docker, Podman, Kubernetes, Python, TypeScript, "
+    "React, Node.js, LTS, API, LLM, GPU, VRAM, Whisper, Piper, localhost.",
+)
+# Greedy decoding (beam_size=1) cannot back out of a bad first guess — once it commits to
+# "open your", the rest of the phrase follows it. Beam search reconsiders.
+STT_BEAM_SIZE = int(os.environ.get("STT_BEAM_SIZE", "5"))
+
 
 def _load_stt():
     """Load (and cache) the whisper model. Lazy so tests can stub this out."""
@@ -112,6 +127,8 @@ def _load_stt():
         from faster_whisper import WhisperModel  # heavy import — only when transcribing
 
         _stt = WhisperModel(
+            # base.en: small.en was measured no more accurate here and 2.5–3.5× slower,
+            # so accuracy comes from the prompt below instead. Override with STT_MODEL.
             os.environ.get("STT_MODEL", "base.en"),
             device="cpu",
             compute_type="int8",
@@ -130,7 +147,11 @@ async def stt(request: Request) -> dict:
     with _stt_lock:
         # vad_filter drops non-speech windows — silence and noise come back as "".
         segments, _info = model.transcribe(
-            io.BytesIO(audio), language="en", beam_size=1, vad_filter=True
+            io.BytesIO(audio),
+            language="en",
+            beam_size=STT_BEAM_SIZE,
+            initial_prompt=STT_PROMPT,
+            vad_filter=True,
         )
         text = " ".join(s.text.strip() for s in segments).strip()
     return {"text": text}

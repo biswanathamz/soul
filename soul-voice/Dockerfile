@@ -27,7 +27,10 @@ RUN mkdir -p voices && cd voices && \
     done
 
 # Bake the whisper STT model too (phase 4: fully local ears — the container
-# must work with no internet). base.en int8 ≈ 145 MB; override with STT_MODEL.
+# must work with no internet). base.en int8 ≈ 145 MB.
+# Measured (docs/bug/stt-proper-noun-mistranscription.md): small.en was never more
+# accurate than base.en on the proper-noun cases, and ran 2.5–3.5× slower. Build with
+# --build-arg STT_MODEL=small.en if your voice/accent proves otherwise.
 ARG STT_MODEL=base.en
 RUN python -c "from faster_whisper import WhisperModel; WhisperModel('${STT_MODEL}', device='cpu', compute_type='int8', download_root='/app/stt')"
 
