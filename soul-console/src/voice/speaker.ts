@@ -10,6 +10,7 @@
 import { useFaceStore } from '../state/faceStore';
 import { useSettingsStore } from '../state/settingsStore';
 import { registerNeuralCancel, useVoiceStore } from '../state/voiceStore';
+import { noteSpokenSentence } from './selfEcho';
 import { CODE_NOTICE, SentenceStream } from './sentences';
 import { stripMarkdownForSpeech } from './tts';
 
@@ -191,7 +192,12 @@ function startCtx(messageId: string): ReplyCtx {
     play: playBlob,
     stop: stopPlayback,
     onStart: () => useVoiceStore.getState().beginSpeech(),
-    onSentence: (text) => useFaceStore.getState().apply({ type: 'speech.sentence', text }),
+    onSentence: (text) => {
+      // Feed the self-echo filter first: with barge-in the mic hears this very
+      // sentence through the speakers, and the wake loop must recognize it.
+      noteSpokenSentence(text);
+      useFaceStore.getState().apply({ type: 'speech.sentence', text });
+    },
     onEnd: (spokeAny) => {
       if (spokeAny) useVoiceStore.getState().endSpeech();
     },
