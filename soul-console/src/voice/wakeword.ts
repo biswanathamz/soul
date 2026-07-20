@@ -16,6 +16,7 @@ import { useSettingsStore } from '../state/settingsStore';
 import { useVoiceStore } from '../state/voiceStore';
 import { chime } from './chime';
 import { isLocalSttSupported, startLocalWakeRecognition } from './localStt';
+import { isSelfEcho } from './selfEcho';
 import { isSttSupported, startRecognition, type SttHandle } from './stt';
 
 // 'seoul' / 'sole' / 'saul' / 'sol' are common recognizer mishears of "soul".
@@ -106,6 +107,13 @@ function startLoop(): void {
   const common = {
     continuous: true,
     onFinal: (text: string) => {
+      // Barge-in keeps the mic open while SOUL speaks, and browser echo
+      // cancellation does NOT remove her own playback — so first check whether
+      // this is just her voice coming back through the mic (selfEcho.ts).
+      if (isSelfEcho(text)) {
+        console.debug(`[voice] wake ignored self-echo: "${text}"`);
+        return;
+      }
       const { matched, remainder } = matchWake(text);
       if (matched) {
         // "Hey SOUL, stop" — cancel rather than asking her "stop" as a question.

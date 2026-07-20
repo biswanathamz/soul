@@ -184,7 +184,8 @@ export function SettingsDrawer() {
                 Barge-in
                 <span className="block text-xs text-muted">
                   Keep the mic open while SOUL speaks so “Hey SOUL” can interrupt her.
-                  Off by default — best with headphones, or her own voice can trip the mic.
+                  She recognizes and ignores echoes of her own voice; headphones still
+                  give the cleanest results.
                 </span>
               </span>
             </label>

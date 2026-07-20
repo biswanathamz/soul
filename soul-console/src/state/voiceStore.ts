@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { isLocalSttSupported, startLocalRecognition } from '../voice/localStt';
+import { noteSpokenSentence } from '../voice/selfEcho';
 import { isSttSupported, startRecognition, type SttHandle, type SttOptions } from '../voice/stt';
 import { cancelSpeech, isTtsSupported, speak as ttsSpeak } from '../voice/tts';
 import { useChatStore } from './chatStore';
@@ -104,6 +105,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     set({ speaking: true });
     face({ type: 'speech.start' });
     face({ type: 'speech.sentence', text });
+    noteSpokenSentence(text); // barge-in: the wake loop must not mistake this for the user
     ttsSpeak(text, {
       voiceURI: useSettingsStore.getState().ttsVoiceURI,
       onEnd: () => {

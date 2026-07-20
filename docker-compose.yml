@@ -16,6 +16,13 @@ services:
       OLLAMA_HOST: http://host.containers.internal:11434
     extra_hosts:
       - "host.containers.internal:host-gateway"   # map the host so the container can reach host Ollama
+    # The Researcher needs real DNS. On hosts running systemd-resolved, /etc/resolv.conf is
+    # the 127.0.0.53 stub, which inside a container's netns points at the CONTAINER's own
+    # loopback — so every external lookup dies with "Temporary failure in name resolution"
+    # and web-search silently finds nothing. Point at a resolver that is reachable from the
+    # container. Override for your own network:  SOUL_DNS=192.168.1.1 make up
+    dns:
+      - ${SOUL_DNS:-1.1.1.1}
     ports:
       - "7788:7788" # optional: direct API access for debugging
     healthcheck:

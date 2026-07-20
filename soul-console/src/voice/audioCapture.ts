@@ -27,7 +27,10 @@ export async function startPcmCapture(
   const stream = await navigator.mediaDevices.getUserMedia({
     // noiseSuppression OFF: Chrome's suppressor treats impulsive sounds (claps!)
     // as noise and erases them; whisper copes fine with unsuppressed audio.
-    // echoCancellation stays ON — barge-in must not hear SOUL's own voice.
+    // echoCancellation ON, but do not rely on it for SOUL's own voice: browser
+    // AEC only reliably cancels WebRTC remote streams, and our TTS plays via a
+    // plain <audio> element — to the canceller that's room noise. Barge-in's
+    // real protection is the text-level filter in selfEcho.ts.
     audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true },
   });
   const ctx = new AudioContext();
