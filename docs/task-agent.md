@@ -1294,6 +1294,50 @@ treated as critical and require the controllable-clock tests to pass in CI.
 
 ---
 
+## 31. Delivery Phases
+
+Sequenced so each phase lands behind a flag, is provable by a test, and can be reverted
+without unpicking the one before it. `soul.task.enabled: false` disables the whole feature at
+any point — nothing below changes Manager behaviour until the Task Agent registers.
+
+**Be clear-eyed about what demos when.** Phases 0–3 are infrastructure: they are verified by
+tests, not by looking at the screen. **Phase 4 is the first phase you can see; phase 5 is the
+first you can hear.** If visible progress earlier matters more than clean layering, pull the
+read-only task list from phase 4 forward into phase 2 (it needs only `QueryTasksUseCase` +
+`GET /api/v1/tasks`) — noted as a deliberate option, not the default.
+
+| Phase | Scope | Exit test |
+| --- | --- | --- |
+| **0 — Postgres in the stack** | `docker-compose` Postgres service; Flyway + JPA wiring; Testcontainers in CI; `db` health indicator. No task code. | `make up` starts with Postgres; `V1__task_agent.sql` applies; `/actuator/health` shows `db: UP`; **every existing orchestrator test still green** (pure infra, zero behaviour change). |
+| **1 — Domain + persistence** | Pure domain (`Task`, `Reminder`, `Recurrence`, states §17, invariants); repository/`Clock` ports + JPA adapters; CRUD use-cases; `tenant_id` scoping. No agent, no scheduler. | Domain unit tests (state transitions, timezone gap/overlap policy §20); Testcontainers tests for optimistic-lock `409`, cascade delete, and `(tenant_id, user_id)` scoping; **ArchUnit: domain imports no Spring/JPA/Jackson**. |
+| **2 — Task Agent worker** (conversational path) | `TaskAgentWorker` registering `task.manage`/`task.query`; tools → use-cases (§4.2); deterministic deadline extractor (§15.3); `AnswerGate` confirmable-mutation rule (§4.3); staged progress. | `DelegationTest`-style stub-LLM run: "remind me to call the dentist next Tuesday at 3" → Manager delegates by capability → task row with the **correct UTC instant for the user's zone**; gate rejects a non-confirmable answer; **ArchUnit: no path from `ManagerAgent` to the task repository** (§2.3). |
+| **3 — Scheduler + reminder engine** (temporal path) | `scheduled_job` ledger; `DueScanScheduler` with `FOR UPDATE SKIP LOCKED`; claim/reaper; `FireReminderUseCase`; retry policy §18; ShedLock. | **Virtual-clock tests**: advance time → reminder fires *exactly once*; kill a claimant mid-job → reaper + idempotency prevent double-fire; two concurrent scans race → no double-claim; suppression when the task was completed first. |
+| **4 — Notifications, user-scoped WS, UI** | `NotificationRouter` + `InAppNotifier`; **new user-scoped WS channel** (§14.3) + ack; `taskStore`/`notificationStore`; task panel, toasts, notification centre, FleetBar integration; REST for the UI. | Create a task by text → it appears in the panel; advance the virtual clock → toast arrives over the user channel; `notify.ack` round-trips; reconnect after offline replays unacked notifications without duplicates (`dedupe_key`). |
+| **5 — Voice notification flow** | `VoiceNotifier`; presence/idle gating; queue behind in-flight TTS; feed the spoken text into the **self-echo buffer**. | A due reminder speaks when audio is idle; **queues** rather than talking over an active reply; does **not** wake the mic (self-echo filter, `selfEcho.ts`); when busy/away it falls back to the in-app toast — the reminder is never lost, only the audio. |
+| **6 — Recurrence** | RRULE storage; lazy one-occurrence-at-a-time roll; `RECURRENCE_ROLL` job; edit *this* vs *series*; `UNTIL`/`COUNT`. | "gym every weekday at 7am" → completing occurrence *n* materialises *n+1*; **stays 7 AM local across a DST boundary**; detaching one occurrence leaves the series intact; `COUNT` exhaustion stops the series. |
+| **7 — Missed-reminder recovery** | `MissedReminderRecovery` on boot/reconnect; lateness classification; digest coalescing; client-side `since=` sync. | Seed overdue jobs, restart: recent ones fire normally, old ones **coalesce into a single digest**, reminders for already-completed tasks are dropped; a weekend of downtime produces one digest, not 200 toasts. |
+| **8 — AI features** | The six of §15, each behind its deterministic guard; `LlmAssist` port with timeouts. | Guardrail tests, one per feature: priority **clamped** and user value never overwritten; summary prompt contains **only real rows**; dates resolved by the parser (LLM only disambiguates); categories from the **closed set**; conflicts from **interval maths**; suggestions require consent. **An LLM timeout never blocks the core mutation** (task still created, `Uncategorized`). |
+| **9 — Hardening** | Metrics/tracing/health (§24); security review (§22); multi-tenant assertions (§23); NFR verification. | `reminder_fire_latency_seconds` p95 within SLO (§30) under a seeded load; scheduler-staleness alert fires when the scan stops; dead-letter ≈ 0; ArchUnit: **every repository method takes a `TenantContext`**; prompt-injection test — a task titled "ignore previous instructions…" doesn't steer summarisation. |
+
+### Sequencing notes
+
+- **Critical path** is 0 → 1 → 2 → 3. Phases 4–5 depend on 3 (something must fire);
+  6, 7, 8 are independent of each other once 3 lands and can be parallelised or reordered by
+  value. 9 is continuous, not really last — pull the metrics forward if the scheduler
+  misbehaves.
+- **Front-load the risk.** Phase 3 is the hardest and least reversible thing here (durable
+  timing, concurrency, exactly-once). Do not let it slip behind UI work; a pretty task panel
+  that forgets to remind you is worse than no feature.
+- **Where the model will disappoint.** On the 4 GB reference box the 3B model is the weak
+  link, exactly as in the researcher and delegation-latency work. Phase 2's extractor exists
+  precisely so a bad parse can't become a wrong `fire_at` — treat any phase-2 exit-test
+  failure as "tighten the deterministic guard", not "reword the prompt".
+- **Latency budget.** Task delegation is parse-bound (one or two model calls), so it should
+  land in single-digit seconds — unlike research (§ the 12-call measurement in the latency bug
+  doc). If a task create takes 20 s, something is delegating or looping that shouldn't be.
+
+---
+
 ## Appendix A — Configuration (application.yml)
 
 ```yaml
