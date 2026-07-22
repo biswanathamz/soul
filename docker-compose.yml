@@ -7,6 +7,29 @@
 # The orchestrator reaches the host's Ollama via host.containers.internal, so
 # host Ollama must listen on 0.0.0.0:11434 (`make ollama-serve` sets that).
 services:
+  # PostgreSQL — durable store for the Task Agent (docs/task-agent.md §6). The rest of
+  # SOUL is stateless; this is the first component that isn't.
+  soul-postgres:
+    image: docker.io/library/postgres:16-alpine
+    container_name: soul-postgres
+    environment:
+      POSTGRES_DB: soul
+      POSTGRES_USER: soul
+      POSTGRES_PASSWORD: ${SOUL_DB_PASSWORD:-soul}
+    volumes:
+      - soul-pgdata:/var/lib/postgresql/data
+    ports:
+      # 5433 on the host, not 5432: a host-native Postgres (common in dev) already owns 5432
+      # and would make `make up` fail to bind. The orchestrator talks to it over the container
+      # network (soul-postgres:5432), so this mapping is only for `psql -p 5433` debugging.
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soul -d soul"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
   soul-orchestrator:
     build:
       context: .
@@ -14,6 +37,13 @@ services:
     container_name: soul-orchestrator
     environment:
       OLLAMA_HOST: http://host.containers.internal:11434
+      SPRING_PROFILES_ACTIVE: postgres     # turns on JPA/Flyway; Flyway applies V1 on boot
+      SOUL_DB_URL: jdbc:postgresql://soul-postgres:5432/soul
+      SOUL_DB_USER: soul
+      SOUL_DB_PASSWORD: ${SOUL_DB_PASSWORD:-soul}
+    depends_on:
+      soul-postgres:
+        condition: service_healthy
     extra_hosts:
       - "host.containers.internal:host-gateway"   # map the host so the container can reach host Ollama
     # The Researcher needs real DNS. On hosts running systemd-resolved, /etc/resolv.conf is
@@ -59,3 +89,6 @@ services:
         condition: service_healthy
       soul-voice:
         condition: service_healthy
+
+volumes:
+  soul-pgdata:

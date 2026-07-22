@@ -1,3 +1,22 @@
+# Persistence is OFF by default. The Task Agent (docs/task-agent.md) introduces Postgres,
+# but JPA auto-config demands a datasource at boot — so unless the 'postgres' profile is
+# active, we exclude every persistence auto-config. This is what keeps the app booting and
+# ALL existing tests green with no database present (phase 0 exit criterion). Turn it on
+# with SPRING_PROFILES_ACTIVE=postgres (the container sets this; see docker-compose.yml).
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+
+management:
+  endpoint:
+    health:
+      show-details: always      # so /actuator/health surfaces the `db` component when present
+
 soul:
   ollama:
     base-url: ${OLLAMA_HOST:http://localhost:11434}
@@ -56,3 +75,30 @@ soul:
 
 server:
   port: 7788
+
+---
+# ── profile: postgres ────────────────────────────────────────────────────────────────
+# Activated with SPRING_PROFILES_ACTIVE=postgres. Re-enables the persistence auto-config
+# excluded above and points JPA/Flyway at the database. Flyway OWNS the schema
+# (db/migration/V1__task_agent.sql); Hibernate only validates against it, never mutates it.
+spring:
+  config:
+    activate:
+      on-profile: postgres
+  autoconfigure:
+    exclude: []                 # clear the default exclusions — persistence is wanted here
+  datasource:
+    url: ${SOUL_DB_URL:jdbc:postgresql://localhost:5432/soul}
+    username: ${SOUL_DB_USER:soul}
+    password: ${SOUL_DB_PASSWORD:soul}
+  jpa:
+    hibernate:
+      ddl-auto: validate        # Flyway is the source of truth; JPA must not touch DDL
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC        # store/compare timestamps in UTC (docs/task-agent.md §20)
+  flyway:
+    enabled: true
+    locations: classpath:db/migration

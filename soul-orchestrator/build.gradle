@@ -23,9 +23,34 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'  // /actuator/health
     implementation 'org.yaml:snakeyaml'                       // skill/hook manifest parsing
     // Jackson comes with the web starter.
+
+    // Persistence — the Task Agent (docs/task-agent.md) is the first stateful worker.
+    // JPA auto-config is disabled by default (see application.yml) so the app still boots
+    // and every existing test stays green when no database is present; it activates only
+    // under the 'postgres' profile / when a datasource URL is set.
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    runtimeOnly 'org.postgresql:postgresql'
+
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // Testcontainers — a real Postgres in CI (works against the podman socket via DOCKER_HOST).
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+
+    // Testcontainers (only TaskAgentMigrationTest uses it). Ryuk, its resource-reaper
+    // sidecar, can't run under rootless podman, so disable it — containers are cleaned up
+    // by the JVM shutdown hook instead. Point Testcontainers at podman's Docker-API socket
+    // when DOCKER_HOST isn't already set and the socket exists; real Docker needs neither.
+    environment 'TESTCONTAINERS_RYUK_DISABLED', 'true'
+    def xdg = System.getenv('XDG_RUNTIME_DIR')
+    def podmanSock = xdg ? "${xdg}/podman/podman.sock" : null
+    if (!System.getenv('DOCKER_HOST') && podmanSock && file(podmanSock).exists()) {
+        environment 'DOCKER_HOST', "unix://${podmanSock}"
+    }
 }
